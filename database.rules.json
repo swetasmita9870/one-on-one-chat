@@ -1,0 +1,38 @@
+{
+  "rules": {
+    "rooms": {
+      "$roomId": {
+        "createdAt": {
+          ".read": "auth != null",
+          ".write": "auth != null && !data.exists() && newData.isNumber()"
+        },
+        "seat1": {
+          ".read": "auth != null",
+          ".write": "auth != null && newData.isString() && newData.val() == auth.uid && (!data.exists() || data.val() == auth.uid)"
+        },
+        "seat2": {
+          ".read": "auth != null",
+          ".write": "auth != null && newData.isString() && newData.val() == auth.uid && root.child('rooms').child($roomId).child('seat1').exists() && root.child('rooms').child($roomId).child('seat1').val() != auth.uid && (!data.exists() || data.val() == auth.uid)"
+        },
+        "members": {
+          ".read": "auth != null",
+          "$uid": {
+            ".write": "auth != null && auth.uid == $uid && newData.child('name').isString() && newData.child('name').val().length > 0 && newData.child('name').val().length <= 40 && newData.child('joinedAt').isNumber() && (root.child('rooms').child($roomId).child('seat1').val() == auth.uid || root.child('rooms').child($roomId).child('seat2').val() == auth.uid)"
+          }
+        },
+        "presence": {
+          ".read": "auth != null && root.child('rooms').child($roomId).child('members').child(auth.uid).exists()",
+          "$uid": {
+            ".write": "auth != null && auth.uid == $uid && root.child('rooms').child($roomId).child('members').child(auth.uid).exists() && (newData.isBoolean() || !newData.exists())"
+          }
+        },
+        "messages": {
+          ".read": "auth != null && root.child('rooms').child($roomId).child('members').child(auth.uid).exists()",
+          "$msgId": {
+            ".write": "auth != null && !data.exists() && newData.hasChildren(['uid', 'name', 'text', 'ts']) && newData.child('uid').val() == auth.uid && root.child('rooms').child($roomId).child('members').child(auth.uid).exists() && newData.child('text').isString() && newData.child('text').val().length > 0 && newData.child('text').val().length <= 2000 && newData.child('name').isString() && newData.child('ts').isNumber()"
+          }
+        }
+      }
+    }
+  }
+}

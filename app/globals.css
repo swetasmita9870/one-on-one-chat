@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: 240 6% 3.5%;
+  --foreground: 36 33% 94%;
+  --card: 240 4% 7%;
+  --card-foreground: 36 33% 94%;
+  --popover: 240 4% 8%;
+  --popover-foreground: 36 33% 94%;
+  --primary: 30 54% 77%;
+  --primary-foreground: 28 35% 8%;
+  --secondary: 240 4% 12%;
+  --secondary-foreground: 36 33% 94%;
+  --muted: 240 4% 12%;
+  --muted-foreground: 30 8% 60%;
+  --accent: 240 4% 16%;
+  --accent-foreground: 36 33% 94%;
+  --destructive: 0 62% 70%;
+  --destructive-foreground: 28 35% 8%;
+  --border: 240 5% 18%;
+  --input: 240 5% 18%;
+  --ring: 30 54% 77%;
+  --radius: 0.9rem;
+  --color-ink: #09090b;
+  --color-panel: #121214;
+  --color-raised: #1c1c1f;
+  --color-line: #2c2c31;
+  --color-fg: #f6f1ea;
+  --color-muted: #a39a90;
+  --color-gold: #e4c4a4;
+  --color-gold-ink: #1c130c;
+  --color-mine: #3c2c22;
+  --color-theirs: #1a1a1d;
+  --color-danger: #f0a3a8;
+}
+
+[data-theme="light"] {
+  --background: 36 33% 93%;
+  --foreground: 24 22% 9%;
+  --card: 36 60% 99%;
+  --card-foreground: 24 22% 9%;
+  --popover: 36 60% 99%;
+  --popover-foreground: 24 22% 9%;
+  --primary: 26 48% 37%;
+  --primary-foreground: 36 60% 98%;
+  --secondary: 33 38% 93%;
+  --secondary-foreground: 24 22% 9%;
+  --muted: 33 38% 93%;
+  --muted-foreground: 25 12% 43%;
+  --accent: 33 38% 90%;
+  --accent-foreground: 24 22% 9%;
+  --destructive: 0 72% 42%;
+  --destructive-foreground: 36 60% 98%;
+  --border: 32 32% 84%;
+  --input: 32 32% 84%;
+  --ring: 26 48% 37%;
+  --color-ink: #f3eee7;
+  --color-panel: #fffdf9;
+  --color-raised: #f6efe6;
+  --color-line: #e6d9c8;
+  --color-fg: #1c1612;
+  --color-muted: #7c6e62;
+  --color-gold: #8d5a32;
+  --color-gold-ink: #fffaf4;
+  --color-mine: #f4e4d2;
+  --color-theirs: #ffffff;
+  --color-danger: #b42318;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-fg);
+}
+
+.chat-wallpaper {
+  background-color: var(--color-ink);
+  background-image:
+    radial-gradient(circle at 20% 0%, rgba(228, 196, 164, 0.14), transparent 32%),
+    radial-gradient(circle at 80% 100%, rgba(141, 90, 50, 0.12), transparent 28%);
+}
