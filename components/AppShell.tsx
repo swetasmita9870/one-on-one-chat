@@ -232,21 +232,23 @@ export function AppShell() {
   }
 
   return (
-    <div className="relative flex h-dvh w-full flex-col overflow-hidden bg-ink pb-[3.35rem] text-fg md:pb-0">
-      <div className="flex min-h-0 w-full flex-1">
+    <div className="relative flex h-dvh w-full flex-col overflow-hidden bg-ink pb-16 text-fg sm:pb-0">
+      <div className="flex min-h-0 w-full flex-1 sm:pl-[4.5rem]">
         <IconSidebar profile={profile} active={shellTab} onTab={openTab} onProfile={() => setDialog("profile")} />
         <div className="grid min-h-0 min-w-0 flex-1 md:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
       <aside className={`${asideClass} h-full min-h-0 flex-col overflow-hidden border-r border-line bg-panel`}>
         {shellTab === "chats" ? (
           <>
-            <header className="flex h-[4.25rem] shrink-0 items-center gap-2 px-4">
-              <button className="md:hidden" type="button" aria-label="Profile" onClick={() => setDialog("profile")}>
+            <header className="flex h-[4.25rem] shrink-0 items-center gap-2 px-3">
+              <button className="grid size-9 place-items-center md:hidden" type="button" aria-label="Profile" onClick={() => setDialog("profile")}>
                 <Avatar name={profile.displayName} photo={profile.photoURL} small />
               </button>
               <span className="min-w-0 flex-1 font-serif text-2xl tracking-tight">Chats</span>
-              <ThemeToggle theme={theme} onTheme={setThemeMode} />
-              <Button variant="ghost" size="icon" type="button" aria-label="New group" onClick={() => setDialog("group")}><Users /></Button>
-              <Button size="icon" type="button" aria-label="New chat" onClick={() => setDialog("new")}><MessageSquarePlus /></Button>
+              <div className="flex items-center gap-0.5">
+                <ThemeToggle theme={theme} onTheme={setThemeMode} />
+                <Button variant="ghost" size="icon" className="size-9" type="button" aria-label="New group" onClick={() => setDialog("group")}><Users /></Button>
+                <Button variant="ghost" size="icon" className="size-9 text-gold" type="button" aria-label="New chat" onClick={() => setDialog("new")}><MessageSquarePlus /></Button>
+              </div>
             </header>
             <ChatList me={profile.uid} chats={chats} profiles={profiles} selectedId={selectedId} query={query} onQuery={setQuery} archived={showArchived} onSelect={(id) => chooseChat(id)} />
             <button className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-muted-foreground hover:bg-white/5 hover:text-fg" type="button" onClick={() => setShowArchived((value) => !value)}>
@@ -335,16 +337,16 @@ export function AppShell() {
       </main>
       </div>
       </div>
-      <BottomNav className="fixed inset-x-0 bottom-0 z-20 md:hidden" active={shellTab} onChange={openTab} />
+      <BottomNav className="fixed inset-x-0 bottom-0 z-20 sm:hidden" active={shellTab} onChange={openTab} />
       {dialog === "profile" ? (
         <>
-          <button className="absolute inset-0 z-30 bg-black/40 md:left-[calc(4.25rem+380px)]" type="button" aria-label="Close profile" onClick={() => setDialog(null)} />
+          <button className="absolute inset-0 z-30 bg-black/40 md:left-[calc(4.5rem+380px)]" type="button" aria-label="Close profile" onClick={() => setDialog(null)} />
           <ProfilePanel profile={profile} theme={theme} onTheme={setThemeMode} onClose={() => setDialog(null)} />
         </>
       ) : null}
       {dialog === "new" || dialog === "group" ? (
         <>
-          <button className="absolute inset-0 z-30 bg-black/40 md:left-[calc(4.25rem+380px)]" type="button" aria-label="Close" onClick={() => setDialog(null)} />
+          <button className="absolute inset-0 z-30 bg-black/40 md:left-[calc(4.5rem+380px)]" type="button" aria-label="Close" onClick={() => setDialog(null)} />
           <PeopleDialog
             mode={dialog}
             me={profile}
@@ -443,7 +445,7 @@ function PeopleDialog({
   }
 
   return (
-    <aside className="absolute inset-y-0 left-0 z-40 flex w-full animate-in slide-in-from-left duration-200 flex-col bg-ink shadow-2xl md:w-[380px]">
+    <aside className="absolute inset-y-0 left-0 z-40 flex w-full animate-in slide-in-from-left duration-200 flex-col bg-ink shadow-2xl sm:left-[4.5rem] sm:w-[380px]">
       <header className="flex h-16 shrink-0 items-center gap-4 bg-gradient-to-br from-[#14967a] to-[#0b4f45] px-3 text-white">
         <button className="grid size-10 place-items-center rounded-full hover:bg-white/10" type="button" aria-label="Back" onClick={onClose}>
           <ArrowLeft />

@@ -11,7 +11,7 @@ export function EmojiPicker({ onPick }: { onPick: (emoji: string) => void }) {
 
   return (
     <div className="relative">
-      <Button variant="ghost" size="icon" type="button" aria-label="Emoji" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      <Button variant="ghost" size="icon" className="size-10" type="button" aria-label="Emoji" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <Smile />
       </Button>
       {open ? (

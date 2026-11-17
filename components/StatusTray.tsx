@@ -97,7 +97,7 @@ export function StatusViewer({
   }, [item, me.uid, uid]);
 
   return (
-    <div className="fixed inset-0 z-30 flex flex-col bg-black text-white">
+    <div className="fixed inset-0 z-30 flex flex-col bg-black text-white sm:left-[4.5rem]">
       <div className="flex items-center gap-3 px-4 pt-4">
         <div className="flex flex-1 gap-1">
           {(items.length ? items : [null]).map((entry, entryIndex) => (

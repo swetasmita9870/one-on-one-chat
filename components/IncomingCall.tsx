@@ -17,7 +17,7 @@ export function IncomingCall({
   onAccept: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-40 flex flex-col bg-[#07111a] text-white">
+    <div className="fixed inset-0 z-40 flex flex-col bg-[#07111a] text-white sm:left-[4.5rem]">
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_50%_20%,rgba(30,201,160,0.22),transparent_55%),radial-gradient(ellipse_at_80%_100%,rgba(14,70,90,0.45),transparent_50%)]" />
       <div className="relative flex flex-1 flex-col items-center justify-center px-8 text-center">
         <p className="animate-pulse text-[11px] font-medium tracking-[0.32em] text-gold uppercase">Incoming {video ? "video" : "voice"} call</p>

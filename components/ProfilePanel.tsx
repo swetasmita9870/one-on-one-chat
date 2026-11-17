@@ -44,7 +44,7 @@ export function ProfilePanel({
   }
 
   return (
-    <aside className="absolute inset-y-0 left-0 z-40 flex w-full animate-in slide-in-from-left duration-200 flex-col bg-ink shadow-2xl md:w-[380px]">
+    <aside className="absolute inset-y-0 left-0 z-40 flex w-full animate-in slide-in-from-left duration-200 flex-col bg-ink shadow-2xl sm:left-[4.5rem] sm:w-[380px]">
       <header className="flex h-16 shrink-0 items-center gap-4 bg-gradient-to-br from-[#14967a] to-[#0b4f45] px-3 text-white">
         <button className="grid size-10 place-items-center rounded-full hover:bg-white/10" type="button" aria-label="Back" onClick={onClose}>
           <ArrowLeft />

@@ -1,17 +1,10 @@
 "use client";
 
-import { CircleDot, MessageCircle, Phone } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UserProfile } from "@/lib/types";
-import type { ShellTab } from "./BottomNav";
+import { shellTabs, type ShellTab } from "./BottomNav";
 import { PingoraMark } from "./PingoraMark";
 import { Avatar } from "./ChatList";
-
-const tabs: Array<{ id: ShellTab; label: string; icon: typeof MessageCircle }> = [
-  { id: "chats", label: "Chats", icon: MessageCircle },
-  { id: "status", label: "Status", icon: CircleDot },
-  { id: "calls", label: "Calls", icon: Phone },
-];
 
 export function IconSidebar({
   profile,
@@ -26,12 +19,14 @@ export function IconSidebar({
 }) {
   return (
     <aside
-      className="hidden w-[4.25rem] shrink-0 flex-col items-center border-r border-line bg-[#0d1114] py-3 md:flex"
+      className="fixed inset-y-0 left-0 z-[60] hidden w-[4.5rem] flex-col items-center border-r border-line bg-[#0d1114] px-2 py-4 sm:flex"
       aria-label="Main navigation"
     >
-      <PingoraMark className="mb-5 size-10" />
-      <nav className="flex w-full flex-col items-center gap-1 px-2" aria-label="Sections">
-        {tabs.map((item) => {
+      <button type="button" className="grid size-11 place-items-center" aria-label="Pingora home" onClick={() => onTab("chats")}>
+        <PingoraMark className="size-11" />
+      </button>
+      <nav className="mt-6 flex w-full flex-col items-center gap-2" aria-label="Sections">
+        {shellTabs.map((item) => {
           const Icon = item.icon;
           const on = active === item.id;
           return (
@@ -43,12 +38,12 @@ export function IconSidebar({
               aria-current={on ? "page" : undefined}
               onClick={() => onTab(item.id)}
               className={cn(
-                "relative grid size-11 w-full place-items-center rounded-xl text-muted-foreground transition hover:bg-white/[0.06] hover:text-fg",
+                "relative grid size-11 place-items-center rounded-2xl text-muted-foreground transition hover:bg-white/[0.06] hover:text-fg",
                 on && "bg-gold/15 text-gold"
               )}
             >
-              {on ? <span className="absolute top-1/2 left-0 h-8 w-0.5 -translate-y-1/2 rounded-r bg-gold" /> : null}
-              <Icon className="size-[1.35rem]" strokeWidth={on ? 2.2 : 1.75} />
+              {on ? <span className="absolute top-1/2 left-0 h-5 w-1 -translate-y-1/2 rounded-r-full bg-gold" /> : null}
+              <Icon className="size-5" strokeWidth={on ? 2.25 : 1.75} />
             </button>
           );
         })}
@@ -56,7 +51,7 @@ export function IconSidebar({
       <div className="min-h-4 flex-1" />
       <button
         type="button"
-        className="mb-1 rounded-full ring-2 ring-transparent transition hover:ring-gold/45"
+        className="grid size-11 place-items-center rounded-full ring-2 ring-transparent transition hover:ring-gold/45"
         aria-label="Profile and settings"
         onClick={onProfile}
       >

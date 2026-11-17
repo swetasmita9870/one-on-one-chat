@@ -22,7 +22,7 @@ export function WallpaperMenu() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" type="button" aria-label="Choose wallpaper">
+        <Button variant="ghost" size="icon" className="size-9" type="button" aria-label="Choose wallpaper">
           <ImageIcon />
         </Button>
       </DropdownMenuTrigger>

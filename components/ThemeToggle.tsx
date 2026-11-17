@@ -42,7 +42,7 @@ export function ThemeToggle({ theme, onTheme }: { theme: ThemeMode; onTheme: (th
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button variant="ghost" size="icon" type="button" aria-label={next === "light" ? "Light theme" : "Dark theme"} onClick={() => onTheme(next)}>
+        <Button variant="ghost" size="icon" className="size-9" type="button" aria-label={next === "light" ? "Light theme" : "Dark theme"} onClick={() => onTheme(next)}>
           {theme === "dark" ? <Sun /> : <Moon />}
         </Button>
       </TooltipTrigger>

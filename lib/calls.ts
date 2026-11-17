@@ -47,6 +47,28 @@ export function watchCall(id: string, onData: (call: CallRecord | null) => void)
   }, `id=eq.${id}`);
 }
 
+export async function startRing(input: { callerId: string; calleeId: string; video: boolean }) {
+  const { data, error } = await getSupabase().from("calls").insert({
+    caller_id: input.callerId,
+    callee_id: input.calleeId,
+    video: input.video,
+    state: "ringing",
+    offer: null,
+    answer: null,
+    created_at: Date.now(),
+  }).select("id").single();
+  if (error) throw new Error(error.message);
+  return data.id as string;
+}
+
+export async function markCallActive(id: string) {
+  await getSupabase().from("calls").update({ state: "active" }).eq("id", id);
+}
+
+export function liveKitRoom(callId: string) {
+  return `pingora-${callId}`;
+}
+
 export async function createCall(input: {
   callerId: string;
   calleeId: string;

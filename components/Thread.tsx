@@ -137,7 +137,7 @@ export function Thread({
             <span className={`block truncate text-xs ${presence === "online" || typers.length ? "text-gold" : "text-muted-foreground"}`}>{typers.length ? `${typers.join(", ")} is typing…` : presence || "Tap for info"}</span>
           </span>
         </button>
-        <div className="flex shrink-0 items-center text-muted-foreground">
+        <div className="flex shrink-0 items-center gap-0.5 pr-1 text-muted-foreground [&_button]:size-9">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" type="button" aria-label="Search messages" onClick={() => setSearchOpen((value) => !value)}><Search /></Button>

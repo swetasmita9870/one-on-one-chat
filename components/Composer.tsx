@@ -41,7 +41,7 @@ export function Composer({
   }
 
   return (
-    <form className="mx-3 mb-3 flex shrink-0 items-end gap-2 rounded-full bg-panel px-2 py-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.28)] ring-1 ring-white/8" onSubmit={submit}>
+    <form className="mx-3 mb-3 flex shrink-0 items-center gap-1 rounded-full bg-panel px-1.5 py-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.28)] ring-1 ring-white/8" onSubmit={submit}>
       <EmojiPicker onPick={insert} />
       <textarea
         ref={field}
@@ -64,7 +64,7 @@ export function Composer({
           }
         }}
       />
-      <Button className="size-11 shrink-0" size="icon" type="submit" aria-label="Send" disabled={!text.trim()}><Send /></Button>
+      <Button className="size-10 shrink-0" size="icon" type="submit" aria-label="Send" disabled={!text.trim()}><Send /></Button>
     </form>
   );
 }
