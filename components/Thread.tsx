@@ -99,7 +99,7 @@ export function Thread({
           const payload = await decryptMessage(chat, message, me, identity);
           next[message.id] = payload.text || "";
         } catch {
-          next[message.id] = "Encrypted message";
+          next[message.id] = "Can't read on this browser";
         }
       }
       if (!cancel) setTexts((current) => (sameTextMap(current, next) ? current : next));

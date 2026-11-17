@@ -1,0 +1,1 @@
+alter table public.profiles add column if not exists key_backup text not null default '';

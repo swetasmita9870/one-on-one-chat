@@ -8,7 +8,9 @@ import { createGroup, openDirect, watchChats } from "@/lib/chats";
 import type { Identity } from "@/lib/crypto";
 import { chatPhoto, chatTitle } from "@/lib/format";
 import { getSupabase, isConfigured, toAppUser, type AppUser } from "@/lib/supabase";
+import { restoreIdentityWithPassword } from "@/lib/identity-sync";
 import { ensureIdentity, loadIdentity } from "@/lib/keys";
+import { getKeyBackup } from "@/lib/users";
 import { clearUnread, sendPayload } from "@/lib/messages";
 import type { CallRecord, ChatRecord, UserProfile } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
@@ -35,6 +37,9 @@ export function AppShell() {
   const [profileLoaded, setProfileLoaded] = useState(false);
   const [identity, setIdentity] = useState<Identity | null>(null);
   const [keyProblem, setKeyProblem] = useState("");
+  const [needsUnlock, setNeedsUnlock] = useState(false);
+  const [unlockPassword, setUnlockPassword] = useState("");
+  const [unlockError, setUnlockError] = useState("");
   const chats = useAppStore((state) => state.chats);
   const profiles = useAppStore((state) => state.profiles);
   const wallpaper = useAppStore((state) => state.wallpaper);
@@ -92,12 +97,20 @@ export function AppShell() {
       if (stored && bytesToB64(stored.publicKey) === publicKey) {
         setIdentity(stored);
         setKeyProblem("");
+        setNeedsUnlock(false);
         stop = startPresence(user.uid);
         return;
       }
-      if (!stored) {
+      const backup = await getKeyBackup(user.uid);
+      if (!stored || bytesToB64(stored?.publicKey || new Uint8Array()) !== publicKey) {
         setIdentity(null);
-        setKeyProblem("This browser does not have the encryption key for this account.");
+        if (backup) {
+          setNeedsUnlock(true);
+          setKeyProblem("");
+        } else {
+          setNeedsUnlock(false);
+          setKeyProblem("This browser does not have your encryption key, and no cloud backup exists yet. Sign in on a device that still reads your chats (for example localhost), then sign in here again with your email password to create a backup.");
+        }
       }
     })();
     return () => {
@@ -143,24 +156,51 @@ export function AppShell() {
   if (!isConfigured) {
     return <main className="grid min-h-dvh place-items-center bg-ink px-6 text-center"><div><h1 className="font-serif text-4xl font-light">Add Supabase keys</h1><p className="mt-2 text-muted-foreground">Set the values in .env.local and restart the app.</p></div></main>;
   }
-  if (!ready || (user && !profileLoaded) || (user && profile && !identity && !keyProblem)) {
+  if (!ready || (user && !profileLoaded) || (user && profile && !identity && !keyProblem && !needsUnlock)) {
     return <main className="grid min-h-dvh place-items-center bg-ink text-center"><div><h1 className="font-serif text-5xl font-light tracking-tight">Pingora</h1><p className="mt-2 text-sm text-muted-foreground">Every moment connected.</p></div></main>;
   }
   if (!user) return <AuthScreen onSignedIn={setUser} />;
+  if (needsUnlock && user) {
+    return (
+      <main className="grid min-h-dvh place-items-center bg-ink px-4">
+        <section className="w-full max-w-md rounded-[28px] border border-line bg-panel p-8">
+          <h1 className="font-serif text-4xl font-light text-center">Unlock messages</h1>
+          <p className="mt-3 text-center text-sm leading-relaxed text-muted-foreground">Enter your account password to load your encryption key on this device.</p>
+          <form className="mt-6 space-y-3" onSubmit={async (event) => {
+            event.preventDefault();
+            setUnlockError("");
+            const ok = await restoreIdentityWithPassword(user.uid, unlockPassword);
+            if (!ok) { setUnlockError("Wrong password or backup is missing."); return; }
+            const loaded = await loadIdentity(user.uid);
+            if (loaded) { setIdentity(loaded); setNeedsUnlock(false); }
+          }}>
+            <Input type="password" value={unlockPassword} placeholder="Account password" autoComplete="current-password" onChange={(event) => setUnlockPassword(event.target.value)} required />
+            {unlockError ? <p className="text-sm text-destructive">{unlockError}</p> : null}
+            <Button className="w-full" type="submit">Unlock</Button>
+          </form>
+        </section>
+      </main>
+    );
+  }
   if (keyProblem) {
     return (
       <main className="grid min-h-dvh place-items-center bg-ink px-4">
         <section className="max-w-md rounded-[28px] border border-line bg-panel p-8 text-center">
         <h1 className="font-serif text-4xl font-light">Encryption key missing</h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{keyProblem} Resetting creates a new key. Older messages stay readable only on the browser that created them.</p>
-        <button className="mt-6 rounded-full bg-gold px-5 py-2.5 text-sm font-semibold text-gold-ink" type="button" onClick={async () => {
+        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{keyProblem}</p>
+        <Button className="mt-6" type="button" onClick={async () => {
+          const { getSupabase } = await import("@/lib/supabase");
+          await getSupabase().auth.signOut();
+          window.location.reload();
+        }}>Sign out and use another device</Button>
+        <Button className="mt-3 w-full" variant="outline" type="button" onClick={async () => {
           const next = await ensureIdentity(user.uid);
           const { updateProfile } = await import("@/lib/users");
           const current = profile || await readProfile(user.uid);
           if (current) await updateProfile(current, { publicKey: bytesToB64(next.publicKey) });
           setIdentity(next);
           setKeyProblem("");
-        }}>Reset key</button>
+        }}>Reset key (loses older messages)</Button>
         </section>
       </main>
     );

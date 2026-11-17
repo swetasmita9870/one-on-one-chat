@@ -97,6 +97,16 @@ export async function createProfile(input: {
   if (error) throw new Error(error.code === "23505" ? "That username is taken." : error.message);
 }
 
+export async function getKeyBackup(uid: string): Promise<string> {
+  const { data } = await getSupabase().from("profiles").select("key_backup").eq("id", uid).maybeSingle();
+  return String((data as { key_backup?: string } | null)?.key_backup || "");
+}
+
+export async function saveKeyBackup(uid: string, packed: string): Promise<void> {
+  const { error } = await getSupabase().from("profiles").update({ key_backup: packed }).eq("id", uid);
+  if (error) throw new Error(error.message);
+}
+
 export async function updateProfile(
   current: UserProfile,
   patch: Partial<Pick<UserProfile, "displayName" | "about" | "photoURL" | "publicKey">> & {

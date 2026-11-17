@@ -4,7 +4,11 @@ import { FormEvent, useState } from "react";
 import { Eye, EyeOff, MessageCircle } from "lucide-react";
 import type { Identity } from "@/lib/crypto";
 import { getSupabase, toAppUser, type AppUser } from "@/lib/supabase";
-import { createProfile } from "@/lib/users";
+import { syncIdentityOnLogin } from "@/lib/identity-sync";
+import { packIdentityBackup } from "@/lib/key-backup";
+import { createProfile, saveKeyBackup } from "@/lib/users";
+
+const LOGIN_PASSWORD_KEY = "pingora-login-password";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -30,7 +34,15 @@ export function AuthScreen({ onSignedIn }: { onSignedIn: (user: AppUser) => void
         : await auth.signInWithPassword({ email: email.trim(), password });
       if (result.error) throw result.error;
       if (!result.data.user || !result.data.session) throw new Error("Check your email to confirm the account, then sign in.");
-      onSignedIn(toAppUser(result.data.user));
+      const appUser = toAppUser(result.data.user);
+      try {
+        await syncIdentityOnLogin(appUser.uid, password);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "";
+        if (msg !== "NEEDS_UNLOCK") throw err;
+      }
+      sessionStorage.setItem(LOGIN_PASSWORD_KEY, password);
+      onSignedIn(appUser);
     } catch (err) {
       setError(authError(err, mode));
     } finally {
@@ -110,6 +122,11 @@ export function ProfileSetup({ user, identity, onDone }: { user: AppUser; identi
         photoURL: user.photoURL || "",
         identity,
       });
+      const password = sessionStorage.getItem(LOGIN_PASSWORD_KEY);
+      if (password) {
+        await saveKeyBackup(user.uid, await packIdentityBackup(user.uid, password, identity));
+        sessionStorage.removeItem(LOGIN_PASSWORD_KEY);
+      }
       onDone();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not save your profile.");

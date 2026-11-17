@@ -7,9 +7,11 @@ import { getSupabase } from "@/lib/supabase";
 import { saveIdentity } from "@/lib/keys";
 import { WALLPAPERS, useAppStore, type WallpaperId } from "@/lib/store";
 import type { UserProfile } from "@/lib/types";
+import { uploadIdentityBackup } from "@/lib/identity-sync";
 import { updateProfile, uploadAvatar } from "@/lib/users";
 import { bytesToB64 } from "@/lib/bytes";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 
 const wallpaperLabel: Record<WallpaperId, string> = {
   doodle: "Doodle",
@@ -38,6 +40,8 @@ export function ProfilePanel({
   const [about, setAbout] = useState(profile.about);
   const [username, setUsername] = useState(profile.username);
   const [error, setError] = useState("");
+  const [backupPassword, setBackupPassword] = useState("");
+  const [backupMsg, setBackupMsg] = useState("");
   const dirty = displayName !== profile.displayName || about !== profile.about || username !== profile.username;
 
   async function save() {
@@ -120,6 +124,23 @@ export function ProfilePanel({
               <button key={id} type="button" aria-label={wallpaperLabel[id]} title={wallpaperLabel[id]} onClick={() => setWallpaper(id)} className={`wallpaper wallpaper-${id} h-12 rounded-xl ring-2 ring-offset-2 ring-offset-panel ${wallpaper === id ? "ring-gold" : "ring-transparent"}`} />
             ))}
           </div>
+        </section>
+
+        <section className="bg-panel px-5 py-4">
+          <p className="text-xs font-medium tracking-wide text-gold">Message backup</p>
+          <p className="mt-1 text-xs text-muted-foreground">Save your encryption key with your account password so Vercel and other browsers can read old messages.</p>
+          <Input className="mt-3" type="password" value={backupPassword} placeholder="Account password" autoComplete="current-password" onChange={(event) => setBackupPassword(event.target.value)} />
+          <Button className="mt-2 w-full" variant="secondary" type="button" disabled={!backupPassword.trim()} onClick={async () => {
+            setBackupMsg("");
+            try {
+              await uploadIdentityBackup(profile.uid, backupPassword.trim());
+              setBackupMsg("Backup saved.");
+              setBackupPassword("");
+            } catch (err) {
+              setBackupMsg(err instanceof Error ? err.message : "Could not save backup.");
+            }
+          }}>Back up encryption key</Button>
+          {backupMsg ? <p className="mt-2 text-xs text-muted-foreground">{backupMsg}</p> : null}
         </section>
 
         <section className="bg-panel">

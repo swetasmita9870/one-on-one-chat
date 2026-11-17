@@ -11,7 +11,8 @@ create table if not exists public.profiles (
   public_key text not null,
   last_seen bigint not null default 0,
   online boolean not null default false,
-  privacy jsonb not null default '{"lastSeen":"everyone","photo":"everyone","about":"everyone"}'::jsonb
+  privacy jsonb not null default '{"lastSeen":"everyone","photo":"everyone","about":"everyone"}'::jsonb,
+  key_backup text not null default ''
 );
 
 create table if not exists public.chats (
