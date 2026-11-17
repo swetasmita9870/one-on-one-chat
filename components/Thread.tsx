@@ -146,7 +146,7 @@ export function Thread({
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-ink">
-      <header className="flex h-16 min-w-0 shrink-0 items-center gap-2 border-b border-line bg-panel px-3">
+      <header className="flex h-16 min-w-0 shrink-0 items-center gap-2 border-b border-line bg-panel/95 backdrop-blur-sm px-3">
         <button className="grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-white/5 md:hidden" type="button" onClick={onBack} aria-label="Back"><ArrowLeft /></button>
         <button className="flex min-w-0 flex-1 items-center gap-3 rounded-xl py-1 text-left hover:bg-white/5" type="button" onClick={onInfo}>
           <span className="relative shrink-0">
@@ -191,7 +191,7 @@ export function Thread({
       ) : null}
       <div
         ref={scroller}
-        className={`wallpaper wallpaper-${wallpaper} min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-4 py-4 sm:px-12`}
+        className={`wallpaper wallpaper-${wallpaper} min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 py-3 sm:px-10`}
         onScroll={(event) => {
           const el = event.currentTarget;
           stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
@@ -199,7 +199,7 @@ export function Thread({
       >
         {messages.length >= limitCount ? <button className="self-center rounded-full bg-panel/80 px-3 py-1 text-sm text-gold" type="button" onClick={() => setLimitCount((count) => count + 80)}>Load earlier</button> : null}
         {shown.length === 0 ? (
-          <div className="m-auto max-w-xs rounded-3xl bg-panel/75 px-6 py-5 text-center shadow-lg ring-1 ring-white/10 backdrop-blur">
+          <div className="m-auto max-w-xs rounded-3xl bg-panel/80 px-6 py-5 text-center shadow-lg ring-1 ring-white/10 backdrop-blur">
             <p className="font-serif text-2xl">{search ? "Nothing matches" : "Say hello"}</p>
             <p className="mt-2 text-sm text-muted-foreground">{search ? "Try a different word from this chat." : "This chat is encrypted on this browser."}</p>
           </div>
@@ -220,7 +220,7 @@ export function Thread({
           return (
             <div key={message.id}>
               {showDay ? <div className="mx-auto my-3 w-fit rounded-full bg-black/30 px-3 py-1 text-[11px] tracking-wide text-muted-foreground">{formatChatDay(message.createdAt)}</div> : null}
-              <article className={`group relative w-fit max-w-[min(78%,28rem)] rounded-2xl px-3 py-1.5 text-fg shadow-sm ${Object.keys(reactionCounts).length ? "mb-3" : ""} ${mine ? "ml-auto rounded-br-md bg-mine" : "rounded-bl-md bg-theirs/95 ring-1 ring-white/10"}`}>
+              <article className={`group relative w-fit max-w-[min(78%,28rem)] rounded-2xl px-3 py-1.5 text-fg shadow-sm ${Object.keys(reactionCounts).length ? "mb-4" : ""} ${mine ? "ml-auto rounded-br-md bg-mine" : "rounded-bl-md bg-theirs/95 ring-1 ring-white/10"}`}>
                 {!message.deletedForAll ? (
                   <button data-message-menu className={`absolute -top-2 right-1 z-10 grid size-5 place-items-center rounded-full bg-panel text-muted-foreground shadow ring-1 ring-white/10 transition ${menuId === message.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`} type="button" aria-label="Message actions" onClick={() => setMenuId(menuId === message.id ? null : message.id)}>
                     <ChevronDown className="size-3.5" />
@@ -232,11 +232,11 @@ export function Thread({
                   {message.deletedForAll ? <div className="text-sm italic text-muted-foreground">This message was deleted</div> : (
                     body ? <div className={`min-w-0 whitespace-pre-wrap break-words ${emojiOnly(body) ? "text-4xl leading-tight" : "text-[15px] leading-snug"}`}>{body}</div> : null
                   )}
-                  <div className="flex shrink-0 items-center gap-1.5 pb-0.5 text-[11px] leading-none whitespace-nowrap text-muted-foreground">
+                  <div className="flex shrink-0 items-center gap-1 pb-0.5 text-[11px] leading-none whitespace-nowrap text-muted-foreground">
                     {message.starredBy?.includes(me.uid) ? <Star className="size-3 shrink-0 fill-gold text-gold" /> : null}
                     {message.editedAt ? <span className="italic">edited</span> : null}
                     <time dateTime={new Date(message.createdAt).toISOString()}>{formatMessageTime(message.createdAt)}</time>
-                    {mine ? <span className={`tracking-tight ${read ? "text-sky-300" : ""}`}>{delivered ? "✓✓" : "✓"}</span> : null}
+                    {mine ? <span className={`tracking-tight ${read ? "text-sky-300" : ""}`}>{delivered ? "\u2713\u2713" : "\u2713"}</span> : null}
                   </div>
                 </div>
                 {Object.keys(reactionCounts).length ? (

@@ -23,17 +23,23 @@
   --input: 204 18% 21%;
   --ring: 168 100% 33%;
   --radius: 0.5rem;
+
+  /* Brand surfaces */
   --color-ink: #07111a;
   --color-panel: #0e1822;
   --color-raised: #16232e;
   --color-line: rgba(255, 255, 255, 0.08);
   --color-fg: #f4f7f8;
   --color-muted: #8ea0ab;
-  --color-gold: #1ec9a0;
-  --color-gold-ink: #04241c;
+  --color-accent: #1ec9a0;
+  --color-accent-ink: #04241c;
   --color-mine: #0d5c4d;
   --color-theirs: #16232e;
   --color-danger: #f15c6d;
+
+  /* Backwards-compatible aliases */
+  --color-gold: var(--color-accent);
+  --color-gold-ink: var(--color-accent-ink);
 }
 
 [data-theme="light"] {
@@ -56,17 +62,21 @@
   --border: 30 14% 86%;
   --input: 30 14% 86%;
   --ring: 168 100% 29%;
+
   --color-ink: #efeae2;
   --color-panel: #ffffff;
   --color-raised: #f0f2f5;
   --color-line: #e9edef;
   --color-fg: #111b21;
   --color-muted: #667781;
-  --color-gold: #008069;
-  --color-gold-ink: #ffffff;
+  --color-accent: #008069;
+  --color-accent-ink: #ffffff;
   --color-mine: #d9fdd3;
   --color-theirs: #ffffff;
   --color-danger: #ea0038;
+
+  --color-gold: var(--color-accent);
+  --color-gold-ink: var(--color-accent-ink);
 }
 
 html,
@@ -102,7 +112,7 @@ body {
 }
 
 *::-webkit-scrollbar-thumb:hover {
-  background: #1ec9a0;
+  background: var(--color-accent);
   background-clip: padding-box;
 }
 
@@ -120,12 +130,12 @@ body {
 }
 
 [data-theme="light"] *::-webkit-scrollbar-thumb:hover {
-  background: #008069;
+  background: var(--color-accent);
   background-clip: padding-box;
 }
 
 .wallpaper {
-  background-color: #07111a;
+  background-color: var(--color-ink);
   background-repeat: repeat;
 }
 
