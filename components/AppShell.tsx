@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, ArrowLeft, MessageCircle, MessageSquarePlus, Search, Users, X } from "lucide-react";
 import { endCall, watchIncoming } from "@/lib/calls";
 import { chatTitle } from "@/lib/format";
-import { ensureNotifyPermission, notifyIncomingCall, notifyNewMessage } from "@/lib/notify";
+import { clearCallNotification, ensureNotifyPermission, notifyIncomingCall, notifyNewMessage } from "@/lib/notify";
 import { playMessageSound, startRingtone, stopRingtone, unlockAudio } from "@/lib/sounds";
 import { createGroup, openDirect, watchChats } from "@/lib/chats";
 import { chatPhoto } from "@/lib/format";
@@ -21,6 +21,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Input } from "@/components/ui/input";
 import { AuthScreen, ProfileSetup } from "./AuthScreen";
 import { CallScreen } from "./CallScreen";
+import { IncomingCall } from "./IncomingCall";
 import { ChatInfo } from "./ChatInfo";
 import { Avatar, ChatList } from "./ChatList";
 import { ProfilePanel } from "./ProfilePanel";
@@ -32,6 +33,19 @@ import { StatusTab } from "./StatusTab";
 import { StatusViewer } from "./StatusTray";
 import { Thread } from "./Thread";
 
+const OPEN_CHAT_KEY = "pingora-open-chat";
+
+function readSavedChat() {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem(OPEN_CHAT_KEY);
+}
+
+function writeSavedChat(id: string | null) {
+  if (typeof window === "undefined") return;
+  if (id) localStorage.setItem(OPEN_CHAT_KEY, id);
+  else localStorage.removeItem(OPEN_CHAT_KEY);
+}
+
 type CallLaunch = { role: "caller" | "callee"; peerId: string; video: boolean; callId?: string };
 
 export function AppShell() {
@@ -42,7 +56,8 @@ export function AppShell() {
   const chats = useAppStore((state) => state.chats);
   const profiles = useAppStore((state) => state.profiles);
   const wallpaper = useAppStore((state) => state.wallpaper);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(() => readSavedChat());
+  const [listReady, setListReady] = useState(false);
   const [query, setQuery] = useState("");
   const [info, setInfo] = useState(false);
   const [dialog, setDialog] = useState<"profile" | "new" | "group" | "forward" | null>(null);
@@ -54,6 +69,9 @@ export function AppShell() {
   const [showArchived, setShowArchived] = useState(false);
   const [shellTab, setShellTab] = useState<ShellTab>("chats");
   const lastMessageAt = useRef<Record<string, number>>({});
+  const messagesPrimed = useRef(false);
+  const profilesRef = useRef(profiles);
+  profilesRef.current = profiles;
 
   useEffect(() => {
     writeTheme(theme);
@@ -89,8 +107,20 @@ export function AppShell() {
 
   useEffect(() => {
     if (!profileUid) return;
-    return watchChats(profileUid, (rows) => useAppStore.getState().setChats(rows));
+    setListReady(false);
+    return watchChats(profileUid, (rows) => {
+      useAppStore.getState().setChats(rows);
+      setListReady(true);
+    });
   }, [profileUid]);
+
+  useEffect(() => {
+    if (!listReady || !selectedId) return;
+    if (!chats.some((chat) => chat.id === selectedId)) {
+      setSelectedId(null);
+      writeSavedChat(null);
+    }
+  }, [chats, listReady, selectedId]);
 
   useEffect(() => {
     if (!profileUid || !selectedId) return;
@@ -119,41 +149,51 @@ export function AppShell() {
 
   useEffect(() => {
     if (!profile) return;
+    if (!messagesPrimed.current) {
+      for (const chat of chats) {
+        if (chat.lastMessage) lastMessageAt.current[chat.id] = chat.lastMessage.at;
+      }
+      if (chats.length > 0) messagesPrimed.current = true;
+      return;
+    }
+    const looking = document.visibilityState === "visible" && document.hasFocus();
     for (const chat of chats) {
       const lm = chat.lastMessage;
       if (!lm) continue;
       const prev = lastMessageAt.current[chat.id] || 0;
       if (lm.at > prev && lm.senderId !== profile.uid) {
-        const focused = selectedId === chat.id && document.visibilityState === "visible" && document.hasFocus();
-        if (!focused) {
+        const focusedChat = selectedId === chat.id && looking;
+        if (!focusedChat) {
           playMessageSound();
-          notifyNewMessage(chatTitle(chat, profile.uid, profiles), lm.preview || "New message");
+          notifyNewMessage(chatTitle(chat, profile.uid, profilesRef.current), lm.preview || "New message");
         }
       }
       lastMessageAt.current[chat.id] = Math.max(prev, lm.at);
     }
-  }, [chats, profile, profiles, selectedId]);
+  }, [chats, profile, selectedId]);
 
   useEffect(() => {
     if (!incoming || call) {
       stopRingtone();
+      clearCallNotification();
       return;
     }
-    const stop = startRingtone();
-    const name = profiles[incoming.callerId]?.displayName || "Someone";
+    startRingtone();
+    const name = profilesRef.current[incoming.callerId]?.displayName || "Someone";
     notifyIncomingCall("Incoming call", `${name} · ${incoming.video ? "Video" : "Voice"}`);
     return () => {
-      stop();
       stopRingtone();
+      clearCallNotification();
     };
-  }, [incoming, call, profiles]);
+  }, [incoming?.id, call]);
 
   const selected = chats.find((chat) => chat.id === selectedId) || null;
+  const chatOpen = Boolean(selected || (selectedId && !listReady));
   const asideClass = shellTab === "chats"
-    ? `${selected ? "hidden md:flex" : "flex"}`
+    ? `${chatOpen ? "hidden md:flex" : "flex"}`
     : "flex";
   const mainClass = shellTab === "chats"
-    ? `${selected ? "flex" : "hidden md:flex"}`
+    ? `${chatOpen ? "flex" : "hidden md:flex"}`
     : "hidden md:flex";
   const contacts = useMemo(() => {
     const ids = new Set<string>();
@@ -175,12 +215,20 @@ export function AppShell() {
     await sendPayload({ chat, me: profile, type: "text", text: forwardText });
     setDialog(null);
     setSelectedId(chat.id);
+    writeSavedChat(chat.id);
+  }
+
+  function chooseChat(id: string | null) {
+    setSelectedId(id);
+    writeSavedChat(id);
+    setInfo(false);
+    if (id) setShellTab("chats");
   }
 
   function openTab(tab: ShellTab) {
     void unlockAudio();
     setShellTab(tab);
-    if (tab !== "chats") setSelectedId(null);
+    if (tab !== "chats") chooseChat(null);
   }
 
   return (
@@ -200,7 +248,7 @@ export function AppShell() {
               <Button variant="ghost" size="icon" type="button" aria-label="New group" onClick={() => setDialog("group")}><Users /></Button>
               <Button size="icon" type="button" aria-label="New chat" onClick={() => setDialog("new")}><MessageSquarePlus /></Button>
             </header>
-            <ChatList me={profile.uid} chats={chats} profiles={profiles} selectedId={selectedId} query={query} onQuery={setQuery} archived={showArchived} onSelect={(id) => { setSelectedId(id); setInfo(false); }} />
+            <ChatList me={profile.uid} chats={chats} profiles={profiles} selectedId={selectedId} query={query} onQuery={setQuery} archived={showArchived} onSelect={(id) => chooseChat(id)} />
             <button className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-muted-foreground hover:bg-white/5 hover:text-fg" type="button" onClick={() => setShowArchived((value) => !value)}>
               <Archive className="size-4 text-gold" />
               {showArchived ? "Back to chats" : "Archived"}
@@ -244,7 +292,7 @@ export function AppShell() {
               me={profile}
               profiles={profiles}
               isContact
-              onBack={() => setSelectedId(null)}
+              onBack={() => chooseChat(null)}
               onInfo={() => setInfo(true)}
               onCall={(video) => {
                 const peerId = selected.memberIds.find((id) => id !== profile.uid) || "";
@@ -262,6 +310,8 @@ export function AppShell() {
               />
             ) : null}
           </>
+        ) : selectedId && !listReady ? (
+          <div className="grid h-full place-items-center text-sm text-muted-foreground">Opening chat…</div>
         ) : shellTab !== "chats" ? (
           <div className="grid h-full place-items-center px-6 text-center text-sm text-muted-foreground md:hidden">
             <p>Use <strong className="text-fg">Chats</strong> for messages. Status and calls live in the left panel.</p>
@@ -299,7 +349,7 @@ export function AppShell() {
             mode={dialog}
             me={profile}
             onClose={() => setDialog(null)}
-            onOpen={(id) => { setSelectedId(id); setDialog(null); }}
+            onOpen={(id) => { chooseChat(id); setDialog(null); }}
           />
         </>
       ) : null}
@@ -330,25 +380,24 @@ export function AppShell() {
         />
       ) : null}
       {incoming && !call ? (
-        <Dialog open onOpenChange={(open) => { if (!open) { stopRingtone(); void endCall(incoming.id); setIncoming(null); } }}>
-          <DialogContent className="border-gold/30 text-center sm:max-w-sm">
-            <DialogHeader className="items-center">
-              <p className="animate-pulse text-[11px] tracking-[0.28em] text-gold uppercase">Incoming call</p>
-              <DialogTitle>{profiles[incoming.callerId]?.displayName || "Someone"}</DialogTitle>
-            </DialogHeader>
-            <p className="text-sm text-muted-foreground">{incoming.video ? "Video call" : "Voice call"}</p>
-            <DialogFooter className="justify-center gap-3 sm:justify-center">
-              <Button variant="destructive" type="button" onClick={() => { stopRingtone(); void endCall(incoming.id); setIncoming(null); }}>Decline</Button>
-              <Button className="btn-auth-primary border-0" type="button" onClick={() => { stopRingtone(); setCall({ role: "callee", peerId: incoming.callerId, video: incoming.video, callId: incoming.id }); }}>Accept</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <IncomingCall
+          callerName={profiles[incoming.callerId]?.displayName || "Someone"}
+          callerPhoto={profiles[incoming.callerId]?.photoURL}
+          video={incoming.video}
+          onDecline={() => { stopRingtone(); void endCall(incoming.id); setIncoming(null); }}
+          onAccept={() => {
+            stopRingtone();
+            setIncoming(null);
+            setCall({ role: "callee", peerId: incoming.callerId, video: incoming.video, callId: incoming.id });
+          }}
+        />
       ) : null}
       {call ? (
         <CallScreen
           me={profile.uid}
           peerId={call.peerId}
           peerName={profiles[call.peerId]?.displayName || "Call"}
+          peerPhoto={profiles[call.peerId]?.photoURL}
           video={call.video}
           role={call.role}
           existingId={call.callId}

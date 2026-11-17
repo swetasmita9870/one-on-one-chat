@@ -25,10 +25,18 @@ function asCall(row: CallRow): CallRecord {
   };
 }
 
+const RING_WINDOW_MS = 45_000;
+
 export function watchIncoming(uid: string, onData: (calls: CallRecord[]) => void) {
   return live("calls", async () => {
     const { data } = await getSupabase().from("calls").select("*").eq("callee_id", uid).eq("state", "ringing");
-    onData(((data || []) as CallRow[]).map(asCall));
+    const now = Date.now();
+    onData(
+      ((data || []) as CallRow[])
+        .map(asCall)
+        .filter((call) => now - call.createdAt < RING_WINDOW_MS)
+        .sort((a, b) => b.createdAt - a.createdAt)
+    );
   }, `callee_id=eq.${uid}`);
 }
 

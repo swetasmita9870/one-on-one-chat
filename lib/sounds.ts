@@ -5,6 +5,7 @@ let ringTimer = 0;
 let ringOsc: OscillatorNode | null = null;
 let ringGain: GainNode | null = null;
 let ringAudio: HTMLAudioElement | null = null;
+let ringGeneration = 0;
 let messageAudio: HTMLAudioElement | null = null;
 let audioCtx: AudioContext | null = null;
 
@@ -59,7 +60,8 @@ export function playMessageSound() {
   void el.play().catch(() => playMessageFallback());
 }
 
-function startRingtoneFallback() {
+function startRingtoneFallback(generation: number) {
+  if (generation !== ringGeneration) return;
   stopRingtoneSynth();
   const c = ctx();
   if (!c) return;
@@ -73,7 +75,7 @@ function startRingtoneFallback() {
   ringOsc.start();
   let on = true;
   ringTimer = window.setInterval(() => {
-    if (!ringGain || !c) return;
+    if (generation !== ringGeneration || !ringGain || !c) return;
     on = !on;
     ringGain.gain.setTargetAtTime(on ? 0.14 : 0, c.currentTime, 0.02);
     if (ringOsc) ringOsc.frequency.value = on ? 480 : 520;
@@ -94,24 +96,63 @@ function stopRingtoneSynth() {
   ringGain = null;
 }
 
+function silence(audio: HTMLAudioElement) {
+  audio.loop = false;
+  audio.pause();
+  audio.currentTime = 0;
+  audio.src = "";
+}
+
 export function startRingtone() {
-  void unlockAudio();
-  stopRingtone();
-  ringAudio = new Audio(RING_URL);
-  ringAudio.loop = true;
-  ringAudio.preload = "auto";
-  void ringAudio.play().catch(() => {
-    ringAudio = null;
-    startRingtoneFallback();
+  const generation = ++ringGeneration;
+  if (ringAudio) silence(ringAudio);
+  stopRingtoneSynth();
+  const audio = new Audio(RING_URL);
+  audio.loop = true;
+  audio.preload = "auto";
+  ringAudio = audio;
+  void audio.play().then(() => {
+    if (generation !== ringGeneration) silence(audio);
+  }).catch(() => {
+    if (generation !== ringGeneration) return;
+    if (ringAudio === audio) ringAudio = null;
+    startRingtoneFallback(generation);
   });
   return stopRingtone;
 }
 
 export function stopRingtone() {
+  ringGeneration += 1;
   if (ringAudio) {
-    ringAudio.pause();
-    ringAudio.currentTime = 0;
+    silence(ringAudio);
     ringAudio = null;
   }
   stopRingtoneSynth();
+}
+
+let backAudio: HTMLAudioElement | null = null;
+let backGeneration = 0;
+
+/** Quiet loop for the person who placed the call, until the other side connects. */
+export function startRingback() {
+  const generation = ++backGeneration;
+  if (backAudio) silence(backAudio);
+  const audio = new Audio(RING_URL);
+  audio.loop = true;
+  audio.volume = 0.28;
+  audio.preload = "auto";
+  backAudio = audio;
+  void audio.play().then(() => {
+    if (generation !== backGeneration) silence(audio);
+  }).catch(() => {
+    if (backAudio === audio) backAudio = null;
+  });
+}
+
+export function stopRingback() {
+  backGeneration += 1;
+  if (backAudio) {
+    silence(backAudio);
+    backAudio = null;
+  }
 }

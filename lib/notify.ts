@@ -6,17 +6,20 @@ export async function ensureNotifyPermission(): Promise<boolean> {
   return result === "granted";
 }
 
-let lastCallTag = "";
+let callNote: Notification | null = null;
 
 export function notifyIncomingCall(title: string, body: string, onClick?: () => void) {
   if (typeof window === "undefined" || !("Notification" in window) || Notification.permission !== "granted") return;
-  const tag = `pingora-call-${Date.now()}`;
-  lastCallTag = tag;
-  const note = new Notification(title, { body, tag, icon: "/favicon.ico" });
+  callNote?.close();
+  const note = new Notification(title, { body, tag: "pingora-incoming-call", icon: "/favicon.ico" });
+  callNote = note;
   note.onclick = () => {
     window.focus();
     onClick?.();
     note.close();
+  };
+  note.onclose = () => {
+    if (callNote === note) callNote = null;
   };
 }
 
@@ -31,5 +34,6 @@ export function notifyNewMessage(title: string, body: string) {
 }
 
 export function clearCallNotification() {
-  lastCallTag = "";
+  callNote?.close();
+  callNote = null;
 }

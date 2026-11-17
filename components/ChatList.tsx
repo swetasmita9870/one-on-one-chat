@@ -75,7 +75,7 @@ export function ChatList({
       </div>
       <ScrollArea className="min-h-0 flex-1">
         {visible.length === 0 ? (
-          <div className="px-6 py-12 text-center">
+          <div className="px-6 py-16 text-center">
             <MessagesSquare className="mx-auto mb-3 size-8 text-gold" />
             <p className="font-serif text-2xl font-light">{needle ? "No matches" : archived ? "Archive is empty" : "No chats yet"}</p>
             <p className="mt-2 text-sm text-muted-foreground">{needle ? "Try another name." : archived ? "Archived chats will wait here." : "Start a chat or a group from the buttons above."}</p>
@@ -87,24 +87,29 @@ export function ChatList({
           const title = chatTitle(chat, me, profiles);
           const other = chat.type === "direct" ? profiles[chat.memberIds.find((id) => id !== me) || ""] : undefined;
           const online = Boolean(other?.online && Date.now() - other.lastSeen < 90000);
+          const selected = chat.id === selectedId;
           return (
-            <button className={`mx-2 grid w-[calc(100%-1rem)] grid-cols-[48px_1fr_auto] items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-white/[0.05] ${chat.id === selectedId ? "bg-white/[0.08]" : ""}`} key={chat.id} onClick={() => onSelect(chat.id)} type="button">
+            <button
+              className={`grid w-full grid-cols-[48px_minmax(0,1fr)_auto] items-center gap-3 border-b border-line/70 px-4 py-3 text-left transition hover:bg-white/[0.04] ${selected ? "bg-gold/10" : ""}`}
+              key={chat.id}
+              onClick={() => onSelect(chat.id)}
+              type="button"
+            >
               <span className="relative">
                 <Avatar name={title} photo={chatPhoto(chat, me, profiles)} />
                 {online ? <span className="absolute right-0 bottom-0 size-3 rounded-full border-2 border-panel bg-emerald-400" /> : null}
               </span>
               <span className="min-w-0">
-                <span className="flex items-center gap-1 truncate font-medium text-fg">
-                  <span className={`truncate ${unread ? "font-semibold" : ""}`}>{title}</span>
+                <span className="flex items-center gap-1.5">
+                  <span className={`truncate text-[15px] text-fg ${unread ? "font-semibold" : "font-medium"}`}>{title}</span>
                   {chat.members[me]?.pinned ? <Pin className="size-3 shrink-0 text-gold" /> : null}
                   {muted ? <BellOff className="size-3 shrink-0 text-muted-foreground" /> : null}
                 </span>
-                <span className="block truncate text-sm text-muted-foreground">{chat.lastMessage?.preview || "No messages yet"}</span>
+                <span className={`mt-0.5 block truncate text-[13px] ${unread ? "font-medium text-fg/80" : "text-muted-foreground"}`}>{chat.lastMessage?.preview || "No messages yet"}</span>
               </span>
-              <span className="flex flex-col items-end gap-1">
-                <span className="text-xs whitespace-nowrap text-muted-foreground">{chat.lastMessage ? formatChatListTime(chat.lastMessage.at) : ""}</span>
-                {unread > 0 ? <Badge className="min-w-5 justify-center px-1.5">{unread}</Badge> : null}
-                {unread > 0 ? <Badge className="min-w-5 justify-center px-1.5">{unread}</Badge> : null}
+              <span className="flex flex-col items-end gap-1.5 self-start pt-0.5">
+                <span className={`text-[11px] whitespace-nowrap ${unread ? "font-medium text-gold" : "text-muted-foreground"}`}>{chat.lastMessage ? formatChatListTime(chat.lastMessage.at) : ""}</span>
+                {unread > 0 ? <Badge className="min-w-5 justify-center px-1.5">{unread > 99 ? "99+" : unread}</Badge> : null}
               </span>
             </button>
           );

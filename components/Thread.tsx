@@ -125,19 +125,19 @@ export function Thread({
 
   return (
     <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-ink">
-      <header className="flex h-16 min-w-0 shrink-0 items-center gap-2 border-b border-line bg-panel/95 backdrop-blur-sm px-3">
+      <header className="flex h-[4.25rem] min-w-0 shrink-0 items-center gap-1 border-b border-line bg-panel px-2">
         <button className="grid size-9 shrink-0 place-items-center rounded-full text-muted-foreground hover:bg-white/5 md:hidden" type="button" onClick={onBack} aria-label="Back"><ArrowLeft /></button>
-        <button className="flex min-w-0 flex-1 items-center gap-3 rounded-xl py-1 text-left hover:bg-white/5" type="button" onClick={onInfo}>
+        <button className="flex min-w-0 flex-1 items-center gap-3 rounded-xl px-2 py-1 text-left hover:bg-white/5" type="button" onClick={onInfo}>
           <span className="relative shrink-0">
             <Avatar name={title} photo={chatPhoto(chat, me.uid, profiles)} small />
             {presence === "online" ? <span className="absolute right-0 bottom-0 size-2.5 rounded-full border-2 border-panel bg-emerald-400" /> : null}
           </span>
           <span className="min-w-0">
             <strong className="block truncate text-[15px] font-semibold text-fg">{title}</strong>
-            <span className={`block truncate text-xs ${presence === "online" || typers.length ? "text-emerald-400" : "text-muted-foreground"}`}>{typers.length ? `${typers.join(", ")} is typing…` : presence || "Open chat info"}</span>
+            <span className={`block truncate text-xs ${presence === "online" || typers.length ? "text-gold" : "text-muted-foreground"}`}>{typers.length ? `${typers.join(", ")} is typing…` : presence || "Tap for info"}</span>
           </span>
         </button>
-        <div className="flex shrink-0 items-center">
+        <div className="flex shrink-0 items-center text-muted-foreground">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button variant="ghost" size="icon" type="button" aria-label="Search messages" onClick={() => setSearchOpen((value) => !value)}><Search /></Button>
@@ -170,7 +170,7 @@ export function Thread({
       ) : null}
       <div
         ref={scroller}
-        className={`${wallpaperClassName(wallpaper)} min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 py-3 sm:px-10`}
+        className={`${wallpaperClassName(wallpaper)} min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-4 sm:px-8`}
         style={wallpaperStyle(wallpaper)}
         onScroll={(event) => {
           const el = event.currentTarget;
@@ -197,10 +197,11 @@ export function Thread({
             counts[emoji] = (counts[emoji] || 0) + 1;
             return counts;
           }, {});
+          const sameSender = Boolean(previous && previous.senderId === message.senderId && !showDay);
           return (
-            <div key={message.id}>
-              {showDay ? <div className="mx-auto my-3 w-fit rounded-full bg-black/30 px-3 py-1 text-[11px] tracking-wide text-muted-foreground">{formatChatDay(message.createdAt)}</div> : null}
-              <article className={`group relative w-fit max-w-[min(78%,28rem)] rounded-2xl px-3 py-1.5 text-fg shadow-sm ${Object.keys(reactionCounts).length ? "mb-4" : ""} ${mine ? "ml-auto rounded-br-md bg-mine" : "rounded-bl-md bg-theirs/95 ring-1 ring-white/10"}`}>
+            <div key={message.id} className={sameSender ? "mt-1" : "mt-3"}>
+              {showDay ? <div className="mx-auto mb-3 w-fit rounded-lg bg-panel/85 px-3 py-1 text-[11px] text-muted-foreground shadow-sm ring-1 ring-line">{formatChatDay(message.createdAt)}</div> : null}
+              <article className={`group relative w-fit max-w-[min(82%,32rem)] px-3 py-1.5 text-fg shadow-sm ${Object.keys(reactionCounts).length ? "mb-4" : ""} ${mine ? "ml-auto rounded-2xl rounded-br-md bg-mine" : "rounded-2xl rounded-bl-md bg-theirs ring-1 ring-black/5"}`}>
                 {!message.deletedForAll ? (
                   <button data-message-menu className={`absolute -top-2 right-1 z-10 grid size-5 place-items-center rounded-full bg-panel text-muted-foreground shadow ring-1 ring-white/10 transition ${menuId === message.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"}`} type="button" aria-label="Message actions" onClick={() => setMenuId(menuId === message.id ? null : message.id)}>
                     <ChevronDown className="size-3.5" />
