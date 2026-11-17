@@ -1,71 +1,117 @@
-import {
-  collection,
-  doc,
-  getDoc,
-  increment,
-  onSnapshot,
-  query,
-  runTransaction,
-  updateDoc,
-  where,
-} from "firebase/firestore";
 import { b64ToBytes } from "./bytes";
 import { randomContentKey, unwrapContentKey, wrapContentKey, type Identity } from "./crypto";
-import { clearQuota, getFirebase, noteQuota } from "./firebase";
-import type { ChatRecord, UserProfile } from "./types";
+import { getSupabase, insertQuiet, live } from "./supabase";
+import type { ChatRecord, MemberInfo, UserProfile } from "./types";
 import { readProfile } from "./users";
 
 export function directChatId(a: string, b: string) {
-  return [a, b].sort().join("::");
+  return [a, b].sort().join("__");
 }
 
-function chatCollection() {
-  return collection(getFirebase().firestore, "chats");
+type MemberRow = {
+  chat_id: string;
+  user_id: string;
+  role: "admin" | "member";
+  joined_at: number;
+  pinned: boolean;
+  archived: boolean;
+  muted_until: number;
+  unread: number;
+};
+
+type ChatRow = {
+  id: string;
+  type: "direct" | "group";
+  title: string;
+  photo_url: string;
+  updated_at: number;
+  last_message: ChatRecord["lastMessage"];
+  disappearing_ms: number | null;
+  current_epoch: number;
+  epochs: ChatRecord["epochs"];
+};
+
+function assemble(rows: ChatRow[], members: MemberRow[]): ChatRecord[] {
+  return rows.map((row) => {
+    const mine = members.filter((member) => member.chat_id === row.id);
+    const memberMap: Record<string, MemberInfo> = {};
+    mine.forEach((member) => {
+      memberMap[member.user_id] = {
+        role: member.role,
+        joinedAt: Number(member.joined_at),
+        pinned: member.pinned,
+        archived: member.archived,
+        mutedUntil: Number(member.muted_until || 0),
+        unread: member.unread || 0,
+      };
+    });
+    return {
+      id: row.id,
+      type: row.type,
+      memberIds: mine.map((member) => member.user_id),
+      members: memberMap,
+      title: row.title || "",
+      photoURL: row.photo_url || "",
+      updatedAt: Number(row.updated_at),
+      lastMessage: row.last_message,
+      disappearingMs: row.disappearing_ms,
+      currentEpoch: row.current_epoch || 0,
+      epochs: row.epochs || {},
+    };
+  });
 }
 
-function asChat(id: string, data: Omit<ChatRecord, "id">): ChatRecord {
-  return { id, ...data };
+async function loadChats(uid: string): Promise<ChatRecord[]> {
+  const { data: mine } = await getSupabase().from("chat_members").select("chat_id").eq("user_id", uid);
+  const ids = (mine || []).map((row) => row.chat_id as string);
+  if (!ids.length) return [];
+  const [{ data: chats }, { data: members }] = await Promise.all([
+    getSupabase().from("chats").select("*").in("id", ids),
+    getSupabase().from("chat_members").select("*").in("chat_id", ids),
+  ]);
+  const rows = assemble((chats || []) as ChatRow[], (members || []) as MemberRow[]);
+  rows.sort((a, b) => {
+    const pin = Number(Boolean(b.members?.[uid]?.pinned)) - Number(Boolean(a.members?.[uid]?.pinned));
+    const at = (chat: ChatRecord) => chat.lastMessage?.at || chat.updatedAt;
+    return pin || at(b) - at(a);
+  });
+  return rows;
 }
 
 export function watchChats(uid: string, onData: (chats: ChatRecord[]) => void) {
-  const chats = query(chatCollection(), where("memberIds", "array-contains", uid));
-  return onSnapshot(chats, (snap) => {
-    if (!snap.metadata.fromCache) clearQuota();
-    const rows = snap.docs.map((item) => asChat(item.id, item.data() as Omit<ChatRecord, "id">));
-    rows.sort((a, b) => {
-      const pin = Number(Boolean(b.members?.[uid]?.pinned)) - Number(Boolean(a.members?.[uid]?.pinned));
-      return pin || b.updatedAt - a.updatedAt;
-    });
-    onData(rows);
-  }, (err) => {
-    if (String(err.code).includes("resource-exhausted")) noteQuota();
-  });
+  let timer = 0;
+  const schedule = () => {
+    window.clearTimeout(timer);
+    timer = window.setTimeout(() => { void loadChats(uid).then(onData); }, 80);
+  };
+  void loadChats(uid).then(onData);
+  const stopMembers = live("chat_members", schedule, `user_id=eq.${uid}`, false);
+  const stopChats = live("chats", schedule, undefined, false);
+  return () => {
+    window.clearTimeout(timer);
+    stopMembers();
+    stopChats();
+  };
 }
 
 export async function openDirect(me: UserProfile, other: UserProfile): Promise<string> {
   const id = directChatId(me.uid, other.uid);
-  const { firestore } = getFirebase();
-  const ref = doc(firestore, "chats", id);
-  await runTransaction(firestore, async (tx) => {
-    const snap = await tx.get(ref);
-    if (snap.exists()) return;
-    const now = Date.now();
-    tx.set(ref, {
-      type: "direct",
-      memberIds: [me.uid, other.uid].sort(),
-      members: {
-        [me.uid]: { role: "member", joinedAt: now, unread: 0 },
-        [other.uid]: { role: "member", joinedAt: now, unread: 0 },
-      },
-      title: "",
-      photoURL: "",
-      updatedAt: now,
-      lastMessage: null,
-      disappearingMs: null,
-      currentEpoch: 0,
-      epochs: {},
-    });
+  const { data: existing } = await getSupabase().from("chats").select("id").eq("id", id).maybeSingle();
+  if (existing) return id;
+  const now = Date.now();
+  await insertQuiet("chats", {
+    id,
+    type: "direct",
+    title: "",
+    photo_url: "",
+    updated_at: now,
+    last_message: null,
+    disappearing_ms: null,
+    current_epoch: 0,
+    epochs: {},
   });
+  await insertQuiet("chat_members", { chat_id: id, user_id: me.uid, role: "member", joined_at: now });
+  await insertQuiet("chat_members", { chat_id: id, user_id: other.uid, role: "member", joined_at: now });
   return id;
 }
 
@@ -79,36 +125,28 @@ async function wrapGroupKey(groupKey: Uint8Array, me: UserProfile, identity: Ide
   return wraps;
 }
 
-export async function createGroup(
-  me: UserProfile,
-  identity: Identity,
-  title: string,
-  memberIds: string[]
-): Promise<string> {
+export async function createGroup(me: UserProfile, identity: Identity, title: string, memberIds: string[]): Promise<string> {
   const ids = Array.from(new Set([me.uid, ...memberIds]));
   const groupKey = randomContentKey();
   const wraps = await wrapGroupKey(groupKey, me, identity, ids);
   const id = `g_${crypto.randomUUID()}`;
   const now = Date.now();
-  const members: ChatRecord["members"] = {};
-  ids.forEach((uid) => {
-    members[uid] = { role: uid === me.uid ? "admin" : "member", joinedAt: now, unread: 0 };
+  await insertQuiet("chats", {
+    id,
+    type: "group",
+    title: title.trim() || "Group",
+    photo_url: "",
+    updated_at: now,
+    last_message: null,
+    disappearing_ms: null,
+    current_epoch: 1,
+    epochs: { "1": wraps },
   });
-  const { firestore } = getFirebase();
-  await runTransaction(firestore, async (tx) => {
-    tx.set(doc(firestore, "chats", id), {
-      type: "group",
-      memberIds: ids,
-      members,
-      title: title.trim() || "Group",
-      photoURL: "",
-      updatedAt: now,
-      lastMessage: null,
-      disappearingMs: null,
-      currentEpoch: 1,
-      epochs: { "1": wraps },
-    });
-  });
+  await insertQuiet("chat_members", { chat_id: id, user_id: me.uid, role: "admin", joined_at: now });
+  const others = ids.filter((uid) => uid !== me.uid);
+  if (others.length) {
+    await insertQuiet("chat_members", others.map((uid) => ({ chat_id: id, user_id: uid, role: "member", joined_at: now })));
+  }
   return id;
 }
 
@@ -130,12 +168,9 @@ export async function addGroupMember(chat: ChatRecord, me: UserProfile, identity
   if (!profile) throw new Error("That person has no profile.");
   const wrap = await wrapContentKey(groupKey, identity.secret, b64ToBytes(profile.publicKey), me.uid);
   const epoch = String(chat.currentEpoch);
-  await updateDoc(doc(getFirebase().firestore, "chats", chat.id), {
-    memberIds: [...chat.memberIds, uid],
-    [`members.${uid}`]: { role: "member", joinedAt: Date.now(), unread: 0 },
-    [`epochs.${epoch}.${uid}`]: wrap,
-    updatedAt: Date.now(),
-  });
+  const epochs = { ...chat.epochs, [epoch]: { ...(chat.epochs[epoch] || {}), [uid]: wrap } };
+  await getSupabase().from("chat_members").insert({ chat_id: chat.id, user_id: uid, role: "member", joined_at: Date.now() });
+  await getSupabase().from("chats").update({ epochs, updated_at: Date.now() }).eq("id", chat.id);
 }
 
 export async function removeGroupMember(chat: ChatRecord, me: UserProfile, identity: Identity, uid: string) {
@@ -145,19 +180,19 @@ export async function removeGroupMember(chat: ChatRecord, me: UserProfile, ident
   const remaining = chat.memberIds.filter((id) => id !== uid);
   const wraps = await wrapGroupKey(nextKey, me, identity, remaining);
   const nextEpoch = chat.currentEpoch + 1;
-  const members = { ...chat.members };
-  delete members[uid];
-  await updateDoc(doc(getFirebase().firestore, "chats", chat.id), {
-    memberIds: remaining,
-    members,
-    currentEpoch: nextEpoch,
-    [`epochs.${nextEpoch}`]: wraps,
-    updatedAt: Date.now(),
-  });
+  await getSupabase().from("chat_members").delete().eq("chat_id", chat.id).eq("user_id", uid);
+  await getSupabase().from("chats").update({
+    current_epoch: nextEpoch,
+    epochs: { ...chat.epochs, [String(nextEpoch)]: wraps },
+    updated_at: Date.now(),
+  }).eq("id", chat.id);
 }
 
 export async function updateGroup(chatId: string, patch: { title?: string; photoURL?: string }) {
-  await updateDoc(doc(getFirebase().firestore, "chats", chatId), { ...patch, updatedAt: Date.now() });
+  const row: Record<string, unknown> = { updated_at: Date.now() };
+  if (patch.title !== undefined) row.title = patch.title;
+  if (patch.photoURL !== undefined) row.photo_url = patch.photoURL;
+  await getSupabase().from("chats").update(row).eq("id", chatId);
 }
 
 export async function setMemberFlag(
@@ -165,28 +200,32 @@ export async function setMemberFlag(
   uid: string,
   patch: Partial<{ pinned: boolean; archived: boolean; mutedUntil: number; unread: number }>
 ) {
-  const update: Record<string, unknown> = {};
-  Object.entries(patch).forEach(([key, value]) => {
-    update[`members.${uid}.${key}`] = value;
-  });
-  await updateDoc(doc(getFirebase().firestore, "chats", chatId), update);
+  const row: Record<string, unknown> = {};
+  if (patch.pinned !== undefined) row.pinned = patch.pinned;
+  if (patch.archived !== undefined) row.archived = patch.archived;
+  if (patch.mutedUntil !== undefined) row.muted_until = patch.mutedUntil;
+  if (patch.unread !== undefined) row.unread = patch.unread;
+  await getSupabase().from("chat_members").update(row).eq("chat_id", chatId).eq("user_id", uid);
 }
 
 export async function setDisappearing(chatId: string, disappearingMs: number | null) {
-  await updateDoc(doc(getFirebase().firestore, "chats", chatId), { disappearingMs });
+  await getSupabase().from("chats").update({ disappearing_ms: disappearingMs }).eq("id", chatId);
 }
 
 export async function bumpUnread(chat: ChatRecord, senderId: string) {
-  const update: Record<string, unknown> = {};
-  chat.memberIds.forEach((uid) => {
-    if (uid !== senderId) update[`members.${uid}.unread`] = increment(1);
-  });
-  if (Object.keys(update).length) await updateDoc(doc(getFirebase().firestore, "chats", chat.id), update);
+  const { error } = await getSupabase().rpc("bump_unread", { cid: chat.id });
+  if (!error) return;
+  await Promise.all(chat.memberIds.filter((uid) => uid !== senderId).map(async (uid) => {
+    const { data } = await getSupabase().from("chat_members").select("unread").eq("chat_id", chat.id).eq("user_id", uid).maybeSingle();
+    await getSupabase().from("chat_members").update({ unread: Number(data?.unread || 0) + 1 }).eq("chat_id", chat.id).eq("user_id", uid);
+  }));
 }
 
 export async function getChat(id: string): Promise<ChatRecord | null> {
-  const snap = await getDoc(doc(getFirebase().firestore, "chats", id));
-  return snap.exists() ? asChat(snap.id, snap.data() as Omit<ChatRecord, "id">) : null;
+  const { data } = await getSupabase().from("chats").select("*").eq("id", id).maybeSingle();
+  if (!data) return null;
+  const { data: members } = await getSupabase().from("chat_members").select("*").eq("chat_id", id);
+  return assemble([data as ChatRow], (members || []) as MemberRow[])[0] || null;
 }
 
 export async function ensureGroupWraps(chat: ChatRecord, me: UserProfile, identity: Identity) {
@@ -197,18 +236,13 @@ export async function ensureGroupWraps(chat: ChatRecord, me: UserProfile, identi
   const missing = chat.memberIds.filter((uid) => !existing[uid]);
   if (!missing.length) return;
   const groupKey = await currentGroupKey(chat, me, identity);
-  const added: Record<string, string> = {};
+  const next = { ...existing };
   for (const uid of missing) {
     const profile = uid === me.uid ? me : await readProfile(uid);
     if (!profile) continue;
-    added[`epochs.${epoch}.${uid}`] = await wrapContentKey(
-      groupKey,
-      identity.secret,
-      b64ToBytes(profile.publicKey),
-      me.uid
-    );
+    next[uid] = await wrapContentKey(groupKey, identity.secret, b64ToBytes(profile.publicKey), me.uid);
   }
-  if (Object.keys(added).length) await updateDoc(doc(getFirebase().firestore, "chats", chat.id), added);
+  await getSupabase().from("chats").update({ epochs: { ...chat.epochs, [epoch]: next } }).eq("id", chat.id);
 }
 
 export { currentGroupKey };

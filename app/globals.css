@@ -9,31 +9,31 @@
   --card-foreground: 36 33% 94%;
   --popover: 240 4% 8%;
   --popover-foreground: 36 33% 94%;
-  --primary: 30 54% 77%;
-  --primary-foreground: 28 35% 8%;
-  --secondary: 240 4% 12%;
-  --secondary-foreground: 36 33% 94%;
-  --muted: 240 4% 12%;
-  --muted-foreground: 30 8% 60%;
-  --accent: 240 4% 16%;
-  --accent-foreground: 36 33% 94%;
-  --destructive: 0 62% 70%;
-  --destructive-foreground: 28 35% 8%;
-  --border: 240 5% 18%;
-  --input: 240 5% 18%;
-  --ring: 30 54% 77%;
-  --radius: 0.9rem;
-  --color-ink: #09090b;
-  --color-panel: #121214;
-  --color-raised: #1c1c1f;
-  --color-line: #2c2c31;
-  --color-fg: #f6f1ea;
-  --color-muted: #a39a90;
-  --color-gold: #e4c4a4;
-  --color-gold-ink: #1c130c;
-  --color-mine: #3c2c22;
-  --color-theirs: #1a1a1d;
-  --color-danger: #f0a3a8;
+  --primary: 168 100% 33%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 200 18% 16%;
+  --secondary-foreground: 180 7% 92%;
+  --muted: 200 18% 16%;
+  --muted-foreground: 203 9% 58%;
+  --accent: 198 16% 22%;
+  --accent-foreground: 180 7% 92%;
+  --destructive: 0 72% 51%;
+  --destructive-foreground: 0 0% 100%;
+  --border: 204 18% 21%;
+  --input: 204 18% 21%;
+  --ring: 168 100% 33%;
+  --radius: 0.5rem;
+  --color-ink: #07111a;
+  --color-panel: #0e1822;
+  --color-raised: #16232e;
+  --color-line: rgba(255, 255, 255, 0.08);
+  --color-fg: #f4f7f8;
+  --color-muted: #8ea0ab;
+  --color-gold: #1ec9a0;
+  --color-gold-ink: #04241c;
+  --color-mine: #0d5c4d;
+  --color-theirs: #16232e;
+  --color-danger: #f15c6d;
 }
 
 [data-theme="light"] {
@@ -43,35 +43,36 @@
   --card-foreground: 24 22% 9%;
   --popover: 36 60% 99%;
   --popover-foreground: 24 22% 9%;
-  --primary: 26 48% 37%;
-  --primary-foreground: 36 60% 98%;
-  --secondary: 33 38% 93%;
-  --secondary-foreground: 24 22% 9%;
-  --muted: 33 38% 93%;
-  --muted-foreground: 25 12% 43%;
-  --accent: 33 38% 90%;
-  --accent-foreground: 24 22% 9%;
+  --primary: 168 100% 29%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 96%;
+  --secondary-foreground: 200 10% 12%;
+  --muted: 0 0% 96%;
+  --muted-foreground: 200 6% 40%;
+  --accent: 160 20% 92%;
+  --accent-foreground: 200 10% 12%;
   --destructive: 0 72% 42%;
-  --destructive-foreground: 36 60% 98%;
-  --border: 32 32% 84%;
-  --input: 32 32% 84%;
-  --ring: 26 48% 37%;
-  --color-ink: #f3eee7;
-  --color-panel: #fffdf9;
-  --color-raised: #f6efe6;
-  --color-line: #e6d9c8;
-  --color-fg: #1c1612;
-  --color-muted: #7c6e62;
-  --color-gold: #8d5a32;
-  --color-gold-ink: #fffaf4;
-  --color-mine: #f4e4d2;
+  --destructive-foreground: 0 0% 100%;
+  --border: 30 14% 86%;
+  --input: 30 14% 86%;
+  --ring: 168 100% 29%;
+  --color-ink: #efeae2;
+  --color-panel: #ffffff;
+  --color-raised: #f0f2f5;
+  --color-line: #e9edef;
+  --color-fg: #111b21;
+  --color-muted: #667781;
+  --color-gold: #008069;
+  --color-gold-ink: #ffffff;
+  --color-mine: #d9fdd3;
   --color-theirs: #ffffff;
-  --color-danger: #b42318;
+  --color-danger: #ea0038;
 }
 
 html,
 body {
   height: 100%;
+  overflow: hidden;
 }
 
 body {
@@ -79,9 +80,95 @@ body {
   color: var(--color-fg);
 }
 
-.chat-wallpaper {
-  background-color: var(--color-ink);
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.22) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: #1ec9a0;
+  background-clip: padding-box;
+}
+
+*::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+[data-theme="light"] * {
+  scrollbar-color: rgba(17, 27, 33, 0.28) transparent;
+}
+
+[data-theme="light"] *::-webkit-scrollbar-thumb {
+  background: rgba(17, 27, 33, 0.28);
+  background-clip: padding-box;
+}
+
+[data-theme="light"] *::-webkit-scrollbar-thumb:hover {
+  background: #008069;
+  background-clip: padding-box;
+}
+
+.wallpaper {
+  background-color: #07111a;
+  background-repeat: repeat;
+}
+
+.wallpaper-doodle {
   background-image:
-    radial-gradient(circle at 20% 0%, rgba(228, 196, 164, 0.14), transparent 32%),
-    radial-gradient(circle at 80% 100%, rgba(141, 90, 50, 0.12), transparent 28%);
+    radial-gradient(circle at 18px 22px, rgba(0, 168, 132, 0.28) 1.4px, transparent 1.6px),
+    radial-gradient(circle at 54px 68px, rgba(255, 255, 255, 0.08) 1.2px, transparent 1.5px),
+    linear-gradient(160deg, rgba(0, 168, 132, 0.08), transparent 42%);
+  background-size: 88px 88px, 88px 88px, 100% 100%;
+}
+
+.wallpaper-aurora {
+  background-image:
+    radial-gradient(ellipse at 50% 42%, rgba(30, 201, 160, 0.16), transparent 46%),
+    radial-gradient(ellipse at 80% 100%, rgba(14, 70, 90, 0.55), transparent 50%),
+    linear-gradient(180deg, #0b1722, #07111a 70%);
+}
+
+.wallpaper-leaves {
+  background-image:
+    repeating-linear-gradient(115deg, rgba(0, 168, 132, 0.09) 0 12px, transparent 12px 28px),
+    radial-gradient(circle at 30% 40%, rgba(52, 211, 153, 0.16), transparent 46%);
+}
+
+.wallpaper-midnight {
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(255, 255, 255, 0.16) 0 1px, transparent 1.5px),
+    radial-gradient(circle at 70% 60%, rgba(255, 255, 255, 0.12) 0 1px, transparent 1.6px),
+    radial-gradient(ellipse at 50% 100%, rgba(0, 92, 75, 0.45), transparent 55%);
+  background-size: 140px 90px, 180px 120px, 100% 100%;
+}
+
+.wallpaper-sand {
+  background-color: #1c1712;
+  background-image:
+    radial-gradient(circle at 25% 20%, rgba(228, 196, 164, 0.16), transparent 40%),
+    repeating-linear-gradient(45deg, rgba(228, 196, 164, 0.05) 0 2px, transparent 2px 14px);
+}
+
+[data-theme="light"] .wallpaper { background-color: #efeae2; }
+[data-theme="light"] .wallpaper-sand { background-color: #f6efe6; }
+[data-theme="light"] .wallpaper-doodle {
+  background-image:
+    radial-gradient(circle at 18px 22px, rgba(0, 128, 105, 0.28) 1.4px, transparent 1.6px),
+    linear-gradient(160deg, rgba(0, 128, 105, 0.06), transparent 42%);
 }

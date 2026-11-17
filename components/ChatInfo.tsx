@@ -5,9 +5,10 @@ import { safetyCode } from "@/lib/crypto";
 import type { Identity } from "@/lib/crypto";
 import { addGroupMember, removeGroupMember, setDisappearing, setMemberFlag, updateGroup } from "@/lib/chats";
 import { chatTitle, otherId } from "@/lib/format";
-import { decryptMessage, watchMessages } from "@/lib/messages";
-import type { ChatRecord, MessageRecord, UserProfile } from "@/lib/types";
-import { findByUsername, uploadAvatar } from "@/lib/users";
+import { decryptMessage } from "@/lib/messages";
+import { sameTextMap, useChatMessages } from "@/lib/use-messages";
+import type { ChatRecord, UserProfile } from "@/lib/types";
+import { searchPeople, uploadAvatar } from "@/lib/users";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -36,13 +37,11 @@ export function ChatInfo({
   const [code, setCode] = useState("");
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
-  const [messages, setMessages] = useState<MessageRecord[]>([]);
+  const messages = useChatMessages(chat.id, 200);
   const [texts, setTexts] = useState<Record<string, string>>({});
   const other = profiles[otherId(chat, me.uid)];
   const admin = chat.members[me.uid]?.role === "admin";
   const starred = messages.filter((message) => message.starredBy?.includes(me.uid));
-
-  useEffect(() => watchMessages(chat.id, 200, setMessages), [chat.id]);
 
   useEffect(() => {
     let cancel = false;
@@ -56,7 +55,7 @@ export function ChatInfo({
           next[message.id] = "Encrypted message";
         }
       }
-      if (!cancel) setTexts(next);
+      if (!cancel) setTexts((current) => (sameTextMap(current, next) ? current : next));
     })();
     return () => { cancel = true; };
   }, [chat, identity, me, messages]);
@@ -69,8 +68,9 @@ export function ChatInfo({
   async function addPerson() {
     setError("");
     try {
-      const person = await findByUsername(username);
-      if (!person) throw new Error("No one uses that username.");
+      const people = (await searchPeople(username)).filter((person) => person.uid !== me.uid);
+      const person = people.find((item) => item.usernameLower === username.trim().toLowerCase().replace(/^@/, "")) || (people.length === 1 ? people[0] : null);
+      if (!person) throw new Error(people.length ? "More than one person matches. Use the full username." : "No one matches that name.");
       await addGroupMember(chat, me, identity, person.uid);
       setUsername("");
     } catch (err) {

@@ -1,4 +1,3 @@
-import { addDoc, collection, doc, onSnapshot, query, updateDoc, where } from "firebase/firestore";
 import { b64ToBytes } from "./bytes";
 import {
   decryptJson,
@@ -8,20 +7,32 @@ import {
   wrapContentKey,
   type Identity,
 } from "./crypto";
-import { getFirebase } from "./firebase";
+import { getSupabase, live } from "./supabase";
 import type { StatusItem, UserProfile } from "./types";
 
 export function watchStatus(uid: string, onData: (items: StatusItem[]) => void) {
-  const items = query(collection(getFirebase().firestore, "statuses", uid, "items"), where("expiresAt", ">", Date.now() - 1000));
-  return onSnapshot(items, (snap) => {
+  return live("statuses", async () => {
     const now = Date.now();
+    const { data } = await getSupabase().from("statuses").select("*").eq("user_id", uid).gt("expires_at", now - 1000);
     onData(
-      snap.docs
-        .map((item) => ({ id: item.id, uid, ...(item.data() as Omit<StatusItem, "id" | "uid">) }))
+      ((data || []) as Array<Record<string, unknown>>)
+        .map((item) => ({
+          id: item.id as string,
+          uid,
+          ciphertext: item.ciphertext as string,
+          nonce: item.nonce as string,
+          wraps: (item.wraps || {}) as StatusItem["wraps"],
+          type: item.type as StatusItem["type"],
+          filePath: (item.file_path as string | null) ?? null,
+          fileNonce: (item.file_nonce as string | null) ?? null,
+          createdAt: Number(item.created_at),
+          expiresAt: Number(item.expires_at),
+          viewers: (item.viewers || {}) as Record<string, number>,
+        }))
         .filter((item) => item.expiresAt > now)
         .sort((a, b) => a.createdAt - b.createdAt)
     );
-  });
+  }, `user_id=eq.${uid}`);
 }
 
 export async function postStatus(input: {
@@ -36,23 +47,25 @@ export async function postStatus(input: {
     wraps[person.uid] = await wrapContentKey(contentKey, input.identity.secret, b64ToBytes(person.publicKey), input.me.uid);
   }
   const payload = await encryptJson({ text: input.text, mime: "", fileName: "" }, contentKey);
-  await addDoc(collection(getFirebase().firestore, "statuses", input.me.uid, "items"), {
+  const { error } = await getSupabase().from("statuses").insert({
+    user_id: input.me.uid,
     ciphertext: payload.ciphertext,
     nonce: payload.nonce,
     wraps,
     type: "text",
-    filePath: null,
-    fileNonce: null,
-    createdAt: Date.now(),
-    expiresAt: Date.now() + 24 * 60 * 60 * 1000,
+    file_path: null,
+    file_nonce: null,
+    created_at: Date.now(),
+    expires_at: Date.now() + 24 * 60 * 60 * 1000,
     viewers: {},
   });
+  if (error) throw new Error(error.message);
 }
 
 export async function markStatusViewed(uid: string, itemId: string, viewerId: string) {
-  await updateDoc(doc(getFirebase().firestore, "statuses", uid, "items", itemId), {
-    [`viewers.${viewerId}`]: Date.now(),
-  });
+  const { data } = await getSupabase().from("statuses").select("viewers").eq("id", itemId).eq("user_id", uid).maybeSingle();
+  const viewers = { ...((data?.viewers || {}) as Record<string, number>), [viewerId]: Date.now() };
+  await getSupabase().from("statuses").update({ viewers }).eq("id", itemId);
 }
 
 export async function decryptStatus(item: StatusItem, me: UserProfile, identity: Identity) {

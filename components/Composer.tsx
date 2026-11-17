@@ -41,12 +41,12 @@ export function Composer({
   }
 
   return (
-    <form className="flex items-end gap-2 border-t border-line bg-panel/80 px-3 py-3 backdrop-blur" onSubmit={submit}>
+    <form className="mx-3 mb-3 flex shrink-0 items-end gap-2 rounded-full bg-panel px-2 py-1.5 shadow-[0_8px_30px_rgba(0,0,0,0.28)] ring-1 ring-white/8" onSubmit={submit}>
       <EmojiPicker onPick={insert} />
       <textarea
         ref={field}
         rows={1}
-        className="max-h-32 min-h-10 flex-1 resize-none rounded-3xl border border-input bg-transparent px-4 py-2 text-sm outline-none placeholder:text-muted-foreground focus:border-gold/60"
+        className="max-h-32 min-h-10 flex-1 resize-none rounded-full border-0 bg-transparent px-3 py-2 text-sm text-fg outline-none placeholder:text-muted-foreground"
         value={text}
         placeholder="Type a message"
         onChange={(event) => {

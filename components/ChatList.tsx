@@ -1,13 +1,15 @@
 "use client";
 
-import { useState } from "react";
-import { BellOff, Pin } from "lucide-react";
-import { chatPhoto, chatTitle, formatTime } from "@/lib/format";
+import { useEffect, useState } from "react";
+import { BellOff, MessagesSquare, Pin, Search } from "lucide-react";
+import { chatPhoto, chatTitle } from "@/lib/format";
+import { formatChatListTime } from "@/lib/format-chat-time";
 import type { ChatRecord, UserProfile } from "@/lib/types";
 import { Avatar as ShadAvatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export function Avatar({ name, photo, small }: { name: string; photo?: string; small?: boolean }) {
   return (
@@ -38,41 +40,54 @@ export function ChatList({
   archived?: boolean;
 }) {
   const [filter, setFilter] = useState<"all" | "unread" | "groups">("all");
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const timer = window.setInterval(() => setTick(Date.now()), 30000);
+    return () => window.clearInterval(timer);
+  }, []);
   const needle = query.trim().toLowerCase();
   const visible = chats.filter((chat) => {
     const isArchived = Boolean(chat.members[me]?.archived);
     if (archived ? !isArchived : isArchived) return false;
     if (!archived && filter === "unread" && !(chat.members[me]?.unread || 0)) return false;
     if (!archived && filter === "groups" && chat.type !== "group") return false;
-    return chatTitle(chat, me, profiles).toLowerCase().includes(needle);
+    const other = chat.type === "direct" ? profiles[chat.memberIds.find((id) => id !== me) || ""] : undefined;
+    const haystack = [chatTitle(chat, me, profiles), other?.username || "", chat.lastMessage?.preview || ""].join(" ").toLowerCase();
+    return haystack.includes(needle);
   });
   return (
     <>
       <div className="space-y-3 px-4 py-3">
-        <Input className="rounded-full" value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Search your chats" />
+        <div className="relative">
+          <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input className="rounded-full pl-9" value={query} onChange={(event) => onQuery(event.target.value)} placeholder="Search your chats" />
+        </div>
         {archived ? null : (
-          <div className="flex gap-2">
-            {(["all", "unread", "groups"] as const).map((item) => (
-              <button className={`rounded-full px-3 py-1 text-xs capitalize ${filter === item ? "bg-gold text-gold-ink" : "bg-raised text-muted-foreground"}`} key={item} type="button" onClick={() => setFilter(item)}>{item}</button>
-            ))}
-          </div>
+          <Tabs value={filter} onValueChange={(value) => setFilter(value as typeof filter)}>
+            <TabsList>
+              <TabsTrigger value="all">All</TabsTrigger>
+              <TabsTrigger value="unread">Unread</TabsTrigger>
+              <TabsTrigger value="groups">Groups</TabsTrigger>
+            </TabsList>
+          </Tabs>
         )}
       </div>
       <ScrollArea className="min-h-0 flex-1">
         {visible.length === 0 ? (
           <div className="px-6 py-12 text-center">
+            <MessagesSquare className="mx-auto mb-3 size-8 text-gold" />
             <p className="font-serif text-2xl font-light">{needle ? "No matches" : archived ? "Archive is empty" : "No chats yet"}</p>
             <p className="mt-2 text-sm text-muted-foreground">{needle ? "Try another name." : archived ? "Archived chats will wait here." : "Start a chat or a group from the buttons above."}</p>
           </div>
         ) : null}
         {visible.map((chat) => {
-          const unread = chat.members[me]?.unread || 0;
+          const unread = chat.id === selectedId ? 0 : (chat.members[me]?.unread || 0);
           const muted = (chat.members[me]?.mutedUntil || 0) > Date.now();
           const title = chatTitle(chat, me, profiles);
           const other = chat.type === "direct" ? profiles[chat.memberIds.find((id) => id !== me) || ""] : undefined;
           const online = Boolean(other?.online && Date.now() - other.lastSeen < 90000);
           return (
-            <button className={`grid w-full grid-cols-[48px_1fr_auto] items-center gap-3 border-b border-line/70 px-4 py-3 text-left transition hover:bg-white/5 ${chat.id === selectedId ? "border-l-2 border-l-gold bg-raised" : ""}`} key={chat.id} onClick={() => onSelect(chat.id)} type="button">
+            <button className={`mx-2 grid w-[calc(100%-1rem)] grid-cols-[48px_1fr_auto] items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition hover:bg-white/[0.05] ${chat.id === selectedId ? "bg-white/[0.08]" : ""}`} key={chat.id} onClick={() => onSelect(chat.id)} type="button">
               <span className="relative">
                 <Avatar name={title} photo={chatPhoto(chat, me, profiles)} />
                 {online ? <span className="absolute right-0 bottom-0 size-3 rounded-full border-2 border-panel bg-emerald-400" /> : null}
@@ -86,7 +101,7 @@ export function ChatList({
                 <span className="block truncate text-sm text-muted-foreground">{chat.lastMessage?.preview || "No messages yet"}</span>
               </span>
               <span className="flex flex-col items-end gap-1">
-                <span className="text-xs text-muted-foreground">{chat.lastMessage ? formatTime(chat.lastMessage.at) : ""}</span>
+                <span className="text-xs whitespace-nowrap text-muted-foreground">{chat.lastMessage ? formatChatListTime(chat.lastMessage.at) : ""}</span>
                 {unread > 0 ? <Badge className="min-w-5 justify-center px-1.5">{unread}</Badge> : null}
               </span>
             </button>

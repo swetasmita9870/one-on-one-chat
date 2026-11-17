@@ -1,33 +1,76 @@
-import { doc, getDoc, onSnapshot, runTransaction, updateDoc } from "firebase/firestore";
 import { bytesToB64 } from "./bytes";
 import type { Identity } from "./crypto";
-import { clearQuota, getFirebase, noteQuota } from "./firebase";
+import { useAppStore } from "./store";
+import { getSupabase, live } from "./supabase";
 import type { Privacy, UserProfile } from "./types";
 
-function userRef(uid: string) {
-  return doc(getFirebase().firestore, "users", uid);
+type ProfileRow = {
+  id: string;
+  display_name: string;
+  username: string;
+  username_lower: string;
+  about: string;
+  photo_url: string;
+  public_key: string;
+  last_seen: number;
+  online: boolean;
+  privacy: UserProfile["privacy"];
+};
+
+function asProfile(row: ProfileRow): UserProfile {
+  return {
+    uid: row.id,
+    displayName: row.display_name,
+    username: row.username,
+    usernameLower: row.username_lower,
+    about: row.about,
+    photoURL: row.photo_url || "",
+    publicKey: row.public_key,
+    lastSeen: Number(row.last_seen || 0),
+    online: Boolean(row.online),
+    privacy: row.privacy || emptyPrivacy(),
+  };
 }
 
 export function emptyPrivacy(): UserProfile["privacy"] {
   return { lastSeen: "everyone", photo: "everyone", about: "everyone" };
 }
 
-export async function readProfile(uid: string): Promise<UserProfile | null> {
-  const snap = await getDoc(userRef(uid));
-  return snap.exists() ? (snap.data() as UserProfile) : null;
+const profileLoads = new Map<string, Promise<UserProfile | null>>();
+
+export async function readProfile(uid: string, fresh = false): Promise<UserProfile | null> {
+  if (!fresh) {
+    const cached = useAppStore.getState().profiles[uid];
+    if (cached) return cached;
+  }
+  const pending = profileLoads.get(uid);
+  if (pending) return pending;
+  const request = (async () => {
+    const { data } = await getSupabase().from("profiles").select("*").eq("id", uid).maybeSingle();
+    const profile = data ? asProfile(data as ProfileRow) : null;
+    if (profile) useAppStore.getState().putProfiles([profile]);
+    return profile;
+  })();
+  profileLoads.set(uid, request);
+  try {
+    return await request;
+  } finally {
+    profileLoads.delete(uid);
+  }
+}
+
+export async function ensureProfiles(ids: string[]) {
+  const known = useAppStore.getState().profiles;
+  const missing = Array.from(new Set(ids)).filter((id) => id && !known[id]);
+  if (!missing.length) return;
+  const { data } = await getSupabase().from("profiles").select("*").in("id", missing);
+  if (data?.length) useAppStore.getState().putProfiles((data as ProfileRow[]).map(asProfile));
 }
 
 export function watchProfile(uid: string, onData: (profile: UserProfile | null) => void) {
-  return onSnapshot(
-    userRef(uid),
-    (snap) => {
-      if (!snap.metadata.fromCache) clearQuota();
-      onData(snap.exists() ? (snap.data() as UserProfile) : null);
-    },
-    (err) => {
-      if (String(err.code).includes("resource-exhausted")) noteQuota();
-    }
-  );
+  return live("profiles", async () => {
+    onData(await readProfile(uid, true));
+  }, `id=eq.${uid}`);
 }
 
 export async function createProfile(input: {
@@ -39,25 +82,19 @@ export async function createProfile(input: {
   identity: Identity;
 }): Promise<void> {
   const usernameLower = input.username.trim().toLowerCase();
-  const { firestore } = getFirebase();
-  await runTransaction(firestore, async (tx) => {
-    const nameRef = doc(firestore, "usernames", usernameLower);
-    const taken = await tx.get(nameRef);
-    if (taken.exists() && taken.data().uid !== input.uid) throw new Error("That username is taken.");
-    tx.set(nameRef, { uid: input.uid });
-    tx.set(userRef(input.uid), {
-      uid: input.uid,
-      displayName: input.displayName.trim(),
-      username: usernameLower,
-      usernameLower,
-      about: input.about.trim() || "Hey there, I'm using Just Us.",
-      photoURL: input.photoURL,
-      publicKey: bytesToB64(input.identity.publicKey),
-      lastSeen: Date.now(),
-      online: true,
-      privacy: emptyPrivacy(),
-    } satisfies UserProfile);
+  const { error } = await getSupabase().from("profiles").insert({
+    id: input.uid,
+    display_name: input.displayName.trim(),
+    username: usernameLower,
+    username_lower: usernameLower,
+    about: input.about.trim() || "Hey there, I'm using Pingora.",
+    photo_url: input.photoURL,
+    public_key: bytesToB64(input.identity.publicKey),
+    last_seen: Date.now(),
+    online: true,
+    privacy: emptyPrivacy(),
   });
+  if (error) throw new Error(error.code === "23505" ? "That username is taken." : error.message);
 }
 
 export async function updateProfile(
@@ -67,24 +104,19 @@ export async function updateProfile(
     privacy?: UserProfile["privacy"];
   }
 ): Promise<void> {
-  const { firestore } = getFirebase();
   const nextName = patch.username?.trim().toLowerCase();
+  const row: Record<string, unknown> = {};
+  if (patch.displayName !== undefined) row.display_name = patch.displayName;
+  if (patch.about !== undefined) row.about = patch.about;
+  if (patch.photoURL !== undefined) row.photo_url = patch.photoURL;
+  if (patch.publicKey !== undefined) row.public_key = patch.publicKey;
+  if (patch.privacy !== undefined) row.privacy = patch.privacy;
   if (nextName && nextName !== current.usernameLower) {
-    await runTransaction(firestore, async (tx) => {
-      const nameRef = doc(firestore, "usernames", nextName);
-      const taken = await tx.get(nameRef);
-      if (taken.exists() && taken.data().uid !== current.uid) throw new Error("That username is taken.");
-      tx.delete(doc(firestore, "usernames", current.usernameLower));
-      tx.set(nameRef, { uid: current.uid });
-      tx.update(userRef(current.uid), {
-        ...patch,
-        username: nextName,
-        usernameLower: nextName,
-      });
-    });
-    return;
+    row.username = nextName;
+    row.username_lower = nextName;
   }
-  await updateDoc(userRef(current.uid), patch);
+  const { error } = await getSupabase().from("profiles").update(row).eq("id", current.uid);
+  if (error) throw new Error(error.code === "23505" ? "That username is taken." : error.message);
 }
 
 export async function uploadAvatar(_uid: string, file: File): Promise<string> {
@@ -100,40 +132,39 @@ export async function uploadAvatar(_uid: string, file: File): Promise<string> {
   return canvas.toDataURL("image/jpeg", 0.72);
 }
 
-export function quotaMessage(err: unknown) {
-  const code = typeof err === "object" && err && "code" in err ? String((err as { code: string }).code) : "";
-  if (code.includes("resource-exhausted")) {
-    noteQuota();
-    return "Firebase's free daily quota is used up. Search will work again after it resets, usually within a day.";
-  }
-  return err instanceof Error ? err.message : "Could not search.";
+export async function listPeople(): Promise<UserProfile[]> {
+  const { data, error } = await getSupabase().from("profiles").select("*").order("display_name").limit(200);
+  if (error) throw new Error(error.message);
+  return ((data || []) as ProfileRow[]).map(asProfile);
+}
+
+export async function searchPeople(query: string): Promise<UserProfile[]> {
+  const key = query.trim().replace(/^@/, "").replace(/[%_,]/g, "");
+  if (!key) return [];
+  const { data, error } = await getSupabase()
+    .from("profiles")
+    .select("*")
+    .or(`username_lower.ilike.%${key}%,display_name.ilike.%${key}%`)
+    .limit(8);
+  if (error) throw new Error(error.message);
+  return ((data || []) as ProfileRow[]).map(asProfile);
 }
 
 export async function findByUsername(username: string): Promise<UserProfile | null> {
   const key = username.trim().toLowerCase().replace(/^@/, "");
-  if (!key) return null;
-  try {
-    const snap = await getDoc(doc(getFirebase().firestore, "usernames", key));
-    if (!snap.exists()) return null;
-    return readProfile(snap.data().uid as string);
-  } catch (err) {
-    throw new Error(quotaMessage(err));
-  }
+  const people = await searchPeople(username);
+  return people.find((person) => person.usernameLower === key)
+    || people.find((person) => person.displayName.toLowerCase() === key)
+    || (people.length === 1 ? people[0] : null);
 }
 
 export function startPresence(uid: string) {
-  const ref = userRef(uid);
   const beat = () => {
-    updateDoc(ref, { online: true, lastSeen: Date.now() })
-      .then(() => clearQuota())
-      .catch((err: unknown) => {
-        const code = typeof err === "object" && err && "code" in err ? String((err as { code: string }).code) : "";
-        if (code.includes("resource-exhausted")) noteQuota();
-      });
+    void getSupabase().from("profiles").update({ online: true, last_seen: Date.now() }).eq("id", uid);
   };
   beat();
   const timer = window.setInterval(beat, 60000);
-  const away = () => updateDoc(ref, { online: false, lastSeen: Date.now() }).catch(() => {});
+  const away = () => { void getSupabase().from("profiles").update({ online: false, last_seen: Date.now() }).eq("id", uid); };
   window.addEventListener("pagehide", away);
   return () => {
     window.clearInterval(timer);

@@ -1,18 +1,3 @@
-import {
-  addDoc,
-  arrayRemove,
-  arrayUnion,
-  collection,
-  deleteDoc,
-  deleteField,
-  doc,
-  limit,
-  onSnapshot,
-  orderBy,
-  query,
-  setDoc,
-  updateDoc,
-} from "firebase/firestore";
 import { b64ToBytes, bytesToB64 } from "./bytes";
 import { bumpUnread, currentGroupKey } from "./chats";
 import {
@@ -24,62 +9,83 @@ import {
   wrapContentKey,
   type Identity,
 } from "./crypto";
-import { getFirebase } from "./firebase";
+import { getSupabase, live } from "./supabase";
 import type { ChatRecord, MessageKind, MessageRecord, UserProfile } from "./types";
 import { readProfile } from "./users";
 
-function messagesRef(chatId: string) {
-  return collection(getFirebase().firestore, "chats", chatId, "messages");
-}
+type MessageRow = {
+  id: string;
+  sender_id: string;
+  created_at: number;
+  type: MessageRecord["type"];
+  ciphertext: string;
+  nonce: string;
+  wraps: MessageRecord["wraps"];
+  epoch: number | null;
+  content_key_wrap: string | null;
+  reply_to: string | null;
+  edited_at: number | null;
+  deleted_for_all: boolean;
+  deleted_for: string[];
+  starred_by: string[];
+  reactions: Record<string, string>;
+  delivered_to: string[];
+  read_by: string[];
+  file_path: string | null;
+  file_nonce: string | null;
+  file_name: string | null;
+  file_mime: string | null;
+  expires_at: number | null;
+};
 
-function asMessage(id: string, data: Omit<MessageRecord, "id">): MessageRecord {
+function asMessage(row: MessageRow): MessageRecord {
   return {
-    senderId: data.senderId,
-    createdAt: data.createdAt,
-    type: data.type,
-    ciphertext: data.ciphertext,
-    nonce: data.nonce,
-    wraps: data.wraps || {},
-    epoch: data.epoch ?? null,
-    contentKeyWrap: data.contentKeyWrap ?? null,
-    replyTo: data.replyTo ?? null,
-    editedAt: data.editedAt ?? null,
-    deletedForAll: Boolean(data.deletedForAll),
-    deletedFor: data.deletedFor || [],
-    starredBy: data.starredBy || [],
-    reactions: data.reactions || {},
-    deliveredTo: data.deliveredTo || [],
-    readBy: data.readBy || [],
-    filePath: data.filePath ?? null,
-    fileNonce: data.fileNonce ?? null,
-    fileName: data.fileName ?? null,
-    fileMime: data.fileMime ?? null,
-    expiresAt: data.expiresAt ?? null,
-    id,
+    senderId: row.sender_id,
+    createdAt: Number(row.created_at),
+    type: row.type,
+    ciphertext: row.ciphertext,
+    nonce: row.nonce,
+    wraps: row.wraps || {},
+    epoch: row.epoch ?? null,
+    contentKeyWrap: row.content_key_wrap ?? null,
+    replyTo: row.reply_to ?? null,
+    editedAt: row.edited_at ?? null,
+    deletedForAll: Boolean(row.deleted_for_all),
+    deletedFor: row.deleted_for || [],
+    starredBy: row.starred_by || [],
+    reactions: row.reactions || {},
+    deliveredTo: row.delivered_to || [],
+    readBy: row.read_by || [],
+    filePath: row.file_path ?? null,
+    fileNonce: row.file_nonce ?? null,
+    fileName: row.file_name ?? null,
+    fileMime: row.file_mime ?? null,
+    expiresAt: row.expires_at ?? null,
+    id: row.id,
   };
 }
 
+async function loadMessages(chatId: string, count: number) {
+  const { data } = await getSupabase().from("messages").select("*").eq("chat_id", chatId).order("created_at", { ascending: false }).limit(count);
+  return ((data || []) as MessageRow[]).map(asMessage).reverse();
+}
+
 export function watchMessages(chatId: string, count: number, onData: (messages: MessageRecord[]) => void) {
-  const messages = query(messagesRef(chatId), orderBy("createdAt", "desc"), limit(count));
-  return onSnapshot(messages, (snap) => {
-    onData(snap.docs.map((item) => asMessage(item.id, item.data() as Omit<MessageRecord, "id">)).reverse());
-  });
+  return live("messages", async () => onData(await loadMessages(chatId, count)), `chat_id=eq.${chatId}`);
 }
 
 export function watchTyping(chatId: string, onData: (typing: Record<string, number>) => void) {
-  return onSnapshot(collection(getFirebase().firestore, "chats", chatId, "typing"), (snap) => {
+  return live("typing", async () => {
+    const { data } = await getSupabase().from("typing").select("user_id, at").eq("chat_id", chatId);
     const typing: Record<string, number> = {};
-    snap.docs.forEach((item) => {
-      typing[item.id] = item.data().at as number;
-    });
+    (data || []).forEach((item) => { typing[item.user_id as string] = Number(item.at); });
     onData(typing);
-  });
+  }, `chat_id=eq.${chatId}`);
 }
 
 export async function setTyping(chatId: string, uid: string, active: boolean) {
-  const ref = doc(getFirebase().firestore, "chats", chatId, "typing", uid);
-  if (active) await setDoc(ref, { at: Date.now() });
-  else await deleteDoc(ref).catch(() => {});
+  if (active) await getSupabase().from("typing").upsert({ chat_id: chatId, user_id: uid, at: Date.now() });
+  else await getSupabase().from("typing").delete().eq("chat_id", chatId).eq("user_id", uid);
 }
 
 async function unwrapWithGroupKey(packed: string, groupKey: Uint8Array) {
@@ -161,38 +167,40 @@ export async function sendPayload(input: {
   const contentKeyWrap = direct ? null : await wrapForGroup(contentKey, await currentGroupKey(input.chat, input.me, input.identity));
   const now = Date.now();
   const expiresAt = input.chat.disappearingMs ? now + input.chat.disappearingMs : null;
-  await addDoc(messagesRef(input.chat.id), {
-    senderId: input.me.uid,
-    createdAt: now,
+  const { error } = await getSupabase().from("messages").insert({
+    chat_id: input.chat.id,
+    sender_id: input.me.uid,
+    created_at: now,
     type: input.type,
     ciphertext: payload.ciphertext,
     nonce: payload.nonce,
     wraps,
     epoch: direct ? null : input.chat.currentEpoch,
-    contentKeyWrap,
-    replyTo: input.replyTo || null,
-    editedAt: null,
-    deletedForAll: false,
-    deletedFor: [],
-    starredBy: [],
+    content_key_wrap: contentKeyWrap,
+    reply_to: input.replyTo || null,
+    edited_at: null,
+    deleted_for_all: false,
+    deleted_for: [],
+    starred_by: [],
     reactions: {},
-    deliveredTo: [input.me.uid],
-    readBy: [input.me.uid],
-    filePath: null,
-    fileNonce: null,
-    fileName: null,
-    fileMime: null,
-    expiresAt,
+    delivered_to: [input.me.uid],
+    read_by: [input.me.uid],
+    file_path: null,
+    file_nonce: null,
+    file_name: null,
+    file_mime: null,
+    expires_at: expiresAt,
   });
-  await updateDoc(doc(getFirebase().firestore, "chats", input.chat.id), {
-    updatedAt: now,
-    lastMessage: {
+  if (error) throw new Error(error.message);
+  await getSupabase().from("chats").update({
+    updated_at: now,
+    last_message: {
       type: input.type,
       senderId: input.me.uid,
       at: now,
       preview: input.type === "text" ? input.text.trim().slice(0, 80) : previewOf[input.type],
     },
-  });
+  }).eq("id", input.chat.id);
   await bumpUnread(input.chat, input.me.uid);
   await setTyping(input.chat.id, input.me.uid, false);
 }
@@ -207,54 +215,55 @@ export async function editMessage(
   const contentKey = randomContentKey();
   const payload = await encryptJson({ text }, contentKey);
   const direct = chat.type === "direct";
-  await updateDoc(doc(messagesRef(chat.id), message.id), {
+  await getSupabase().from("messages").update({
     ciphertext: payload.ciphertext,
     nonce: payload.nonce,
     wraps: direct ? await wrapForDirect(contentKey, me, identity, chat.memberIds) : {},
-    contentKeyWrap: direct ? null : await wrapForGroup(contentKey, await currentGroupKey(chat, me, identity)),
+    content_key_wrap: direct ? null : await wrapForGroup(contentKey, await currentGroupKey(chat, me, identity)),
     epoch: direct ? null : chat.currentEpoch,
-    editedAt: Date.now(),
+    edited_at: Date.now(),
     type: "text",
-  });
+  }).eq("id", message.id);
 }
 
 export async function deleteForMe(chatId: string, messageId: string, uid: string) {
-  await updateDoc(doc(messagesRef(chatId), messageId), { deletedFor: arrayUnion(uid) });
+  const { data } = await getSupabase().from("messages").select("deleted_for").eq("id", messageId).eq("chat_id", chatId).maybeSingle();
+  const current = (data?.deleted_for || []) as string[];
+  if (current.includes(uid)) return;
+  await getSupabase().from("messages").update({ deleted_for: [...current, uid] }).eq("id", messageId);
 }
 
 export async function deleteForEveryone(chatId: string, messageId: string) {
-  await updateDoc(doc(messagesRef(chatId), messageId), {
-    deletedForAll: true,
-    ciphertext: "",
-    filePath: null,
-  });
+  await getSupabase().from("messages").update({ deleted_for_all: true, ciphertext: "", file_path: null }).eq("id", messageId).eq("chat_id", chatId);
 }
 
 export async function setReaction(chatId: string, messageId: string, uid: string, emoji: string, current?: string) {
-  await updateDoc(doc(messagesRef(chatId), messageId), {
-    [`reactions.${uid}`]: current === emoji ? deleteField() : emoji,
-  });
+  const { data } = await getSupabase().from("messages").select("reactions").eq("id", messageId).eq("chat_id", chatId).maybeSingle();
+  const reactions = { ...((data?.reactions || {}) as Record<string, string>) };
+  if (current === emoji) delete reactions[uid];
+  else reactions[uid] = emoji;
+  await getSupabase().from("messages").update({ reactions }).eq("id", messageId);
 }
 
 export async function toggleStar(chatId: string, message: MessageRecord, uid: string) {
-  await updateDoc(doc(messagesRef(chatId), message.id), {
-    starredBy: message.starredBy?.includes(uid) ? arrayRemove(uid) : arrayUnion(uid),
-  });
+  const starred = message.starredBy?.includes(uid) ? message.starredBy.filter((id) => id !== uid) : [...(message.starredBy || []), uid];
+  await getSupabase().from("messages").update({ starred_by: starred }).eq("id", message.id).eq("chat_id", chatId);
 }
 
 export async function markReceipt(chatId: string, messageId: string, uid: string, kind: "deliveredTo" | "readBy") {
-  await updateDoc(doc(messagesRef(chatId), messageId), { [kind]: arrayUnion(uid) });
+  const column = kind === "deliveredTo" ? "delivered_to" : "read_by";
+  const { data } = await getSupabase().from("messages").select(column).eq("id", messageId).eq("chat_id", chatId).maybeSingle();
+  const current = (((data as Record<string, string[] | null> | null)?.[column] || []) as string[]);
+  if (current.includes(uid)) return;
+  await getSupabase().from("messages").update({ [column]: [...current, uid] }).eq("id", messageId);
 }
 
 export async function clearUnread(chatId: string, uid: string) {
-  await updateDoc(doc(getFirebase().firestore, "chats", chatId), { [`members.${uid}.unread`]: 0 });
+  await getSupabase().from("chat_members").update({ unread: 0 }).eq("chat_id", chatId).eq("user_id", uid);
 }
 
 export async function purgeExpired(messages: MessageRecord[], chatId: string) {
   const now = Date.now();
-  await Promise.all(
-    messages
-      .filter((message) => message.expiresAt && message.expiresAt < now)
-      .map((message) => deleteDoc(doc(messagesRef(chatId), message.id)))
-  );
+  const ids = messages.filter((message) => message.expiresAt && message.expiresAt < now).map((message) => message.id);
+  if (ids.length) await getSupabase().from("messages").delete().eq("chat_id", chatId).in("id", ids);
 }

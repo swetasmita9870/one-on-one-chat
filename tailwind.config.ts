@@ -36,8 +36,8 @@ const config: Config = {
         sm: "calc(var(--radius) - 4px)",
       },
       fontFamily: {
-        sans: ["Avenir Next", "Segoe UI", "ui-sans-serif", "system-ui", "sans-serif"],
-        serif: ["Iowan Old Style", "Palatino", "Palatino Linotype", "Georgia", "serif"],
+        sans: ["Manrope", "Segoe UI", "Helvetica Neue", "Arial", "sans-serif"],
+        serif: ["Fraunces", "Iowan Old Style", "Palatino", "Georgia", "serif"],
       },
     },
   },
