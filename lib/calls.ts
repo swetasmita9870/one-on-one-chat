@@ -73,6 +73,20 @@ export async function sendIce(callId: string, from: string, candidate: RTCIceCan
   await getSupabase().from("call_ice").insert({ call_id: callId, from_user: from, candidate });
 }
 
+export async function loadCallHistory(uid: string): Promise<CallRecord[]> {
+  const { data } = await getSupabase()
+    .from("calls")
+    .select("*")
+    .or(`caller_id.eq.${uid},callee_id.eq.${uid}`)
+    .order("created_at", { ascending: false })
+    .limit(60);
+  return ((data || []) as CallRow[]).map(asCall);
+}
+
+export function watchCallHistory(uid: string, onData: (calls: CallRecord[]) => void) {
+  return live("calls", () => void loadCallHistory(uid).then(onData), undefined, false);
+}
+
 export function watchIce(callId: string, onData: (from: string, candidate: RTCIceCandidateInit) => void) {
   const seen = new Set<string>();
   return live("call_ice", async () => {

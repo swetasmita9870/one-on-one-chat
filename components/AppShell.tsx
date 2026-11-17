@@ -1,22 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Archive, ArrowLeft, MessageCircle, MessageSquarePlus, Search, Users, X } from "lucide-react";
-import { bytesToB64 } from "@/lib/bytes";
 import { endCall, watchIncoming } from "@/lib/calls";
+import { chatTitle } from "@/lib/format";
+import { ensureNotifyPermission, notifyIncomingCall, notifyNewMessage } from "@/lib/notify";
+import { playMessageSound, startRingtone, stopRingtone, unlockAudio } from "@/lib/sounds";
 import { createGroup, openDirect, watchChats } from "@/lib/chats";
-import type { Identity } from "@/lib/crypto";
-import { chatPhoto, chatTitle } from "@/lib/format";
+import { chatPhoto } from "@/lib/format";
 import { getSupabase, isConfigured, toAppUser, type AppUser } from "@/lib/supabase";
-import { restoreIdentityWithPassword } from "@/lib/identity-sync";
-import { ensureIdentity, loadIdentity } from "@/lib/keys";
-import { getKeyBackup } from "@/lib/users";
 import { clearUnread, sendPayload } from "@/lib/messages";
 import type { CallRecord, ChatRecord, UserProfile } from "@/lib/types";
 import { useAppStore } from "@/lib/store";
+import { wallpaperClassName, wallpaperStyle } from "@/lib/wallpapers";
 import { readSavedTheme, ThemeToggle, writeTheme, type ThemeMode } from "./ThemeToggle";
 import { WallpaperMenu } from "./WallpaperMenu";
-import { ensureProfiles, listPeople, readProfile, startPresence, watchProfile } from "@/lib/users";
+import { ensureProfiles, listPeople, startPresence, watchProfile } from "@/lib/users";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -25,7 +24,12 @@ import { CallScreen } from "./CallScreen";
 import { ChatInfo } from "./ChatInfo";
 import { Avatar, ChatList } from "./ChatList";
 import { ProfilePanel } from "./ProfilePanel";
-import { StatusTray, StatusViewer } from "./StatusTray";
+import { BottomNav, type ShellTab } from "./BottomNav";
+import { CallHistory } from "./CallHistory";
+import { IconSidebar } from "./IconSidebar";
+import { PingoraMark } from "./PingoraMark";
+import { StatusTab } from "./StatusTab";
+import { StatusViewer } from "./StatusTray";
 import { Thread } from "./Thread";
 
 type CallLaunch = { role: "caller" | "callee"; peerId: string; video: boolean; callId?: string };
@@ -35,11 +39,6 @@ export function AppShell() {
   const [user, setUser] = useState<AppUser | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoaded, setProfileLoaded] = useState(false);
-  const [identity, setIdentity] = useState<Identity | null>(null);
-  const [keyProblem, setKeyProblem] = useState("");
-  const [needsUnlock, setNeedsUnlock] = useState(false);
-  const [unlockPassword, setUnlockPassword] = useState("");
-  const [unlockError, setUnlockError] = useState("");
   const chats = useAppStore((state) => state.chats);
   const profiles = useAppStore((state) => state.profiles);
   const wallpaper = useAppStore((state) => state.wallpaper);
@@ -53,6 +52,8 @@ export function AppShell() {
   const [incoming, setIncoming] = useState<CallRecord | null>(null);
   const [theme, setTheme] = useState<ThemeMode>(() => (typeof window !== "undefined" ? readSavedTheme() : "dark"));
   const [showArchived, setShowArchived] = useState(false);
+  const [shellTab, setShellTab] = useState<ShellTab>("chats");
+  const lastMessageAt = useRef<Record<string, number>>({});
 
   useEffect(() => {
     writeTheme(theme);
@@ -72,52 +73,17 @@ export function AppShell() {
   }, []);
 
   useEffect(() => {
-    if (!user) { setProfile(null); setIdentity(null); setProfileLoaded(false); return; }
+    if (!user) { setProfile(null); setProfileLoaded(false); return; }
+    let stop = () => {};
     return watchProfile(user.uid, (next) => {
       setProfile(next);
-      if (next) useAppStore.getState().putProfiles([next]);
+      if (next) {
+        useAppStore.getState().putProfiles([next]);
+        stop = startPresence(next.uid);
+      }
       setProfileLoaded(true);
     });
   }, [user]);
-
-  const publicKey = profile?.publicKey || "";
-
-  useEffect(() => {
-    if (!user) return;
-    let stop = () => {};
-    let cancelled = false;
-    (async () => {
-      const stored = await loadIdentity(user.uid);
-      if (cancelled) return;
-      if (!publicKey) {
-        setIdentity(stored || await ensureIdentity(user.uid));
-        setKeyProblem("");
-        return;
-      }
-      if (stored && bytesToB64(stored.publicKey) === publicKey) {
-        setIdentity(stored);
-        setKeyProblem("");
-        setNeedsUnlock(false);
-        stop = startPresence(user.uid);
-        return;
-      }
-      const backup = await getKeyBackup(user.uid);
-      if (!stored || bytesToB64(stored?.publicKey || new Uint8Array()) !== publicKey) {
-        setIdentity(null);
-        if (backup) {
-          setNeedsUnlock(true);
-          setKeyProblem("");
-        } else {
-          setNeedsUnlock(false);
-          setKeyProblem("This browser does not have your encryption key, and no cloud backup exists yet. Sign in on a device that still reads your chats (for example localhost), then sign in here again with your email password to create a backup.");
-        }
-      }
-    })();
-    return () => {
-      cancelled = true;
-      stop();
-    };
-  }, [publicKey, user]);
 
   const profileUid = profile?.uid || "";
 
@@ -146,7 +112,49 @@ export function AppShell() {
     return watchIncoming(profileUid, (rows) => setIncoming(rows[0] || null));
   }, [call, profileUid]);
 
+  useEffect(() => {
+    if (!profile) return;
+    void ensureNotifyPermission();
+  }, [profile]);
+
+  useEffect(() => {
+    if (!profile) return;
+    for (const chat of chats) {
+      const lm = chat.lastMessage;
+      if (!lm) continue;
+      const prev = lastMessageAt.current[chat.id] || 0;
+      if (lm.at > prev && lm.senderId !== profile.uid) {
+        const focused = selectedId === chat.id && document.visibilityState === "visible" && document.hasFocus();
+        if (!focused) {
+          playMessageSound();
+          notifyNewMessage(chatTitle(chat, profile.uid, profiles), lm.preview || "New message");
+        }
+      }
+      lastMessageAt.current[chat.id] = Math.max(prev, lm.at);
+    }
+  }, [chats, profile, profiles, selectedId]);
+
+  useEffect(() => {
+    if (!incoming || call) {
+      stopRingtone();
+      return;
+    }
+    const stop = startRingtone();
+    const name = profiles[incoming.callerId]?.displayName || "Someone";
+    notifyIncomingCall("Incoming call", `${name} · ${incoming.video ? "Video" : "Voice"}`);
+    return () => {
+      stop();
+      stopRingtone();
+    };
+  }, [incoming, call, profiles]);
+
   const selected = chats.find((chat) => chat.id === selectedId) || null;
+  const asideClass = shellTab === "chats"
+    ? `${selected ? "hidden md:flex" : "flex"}`
+    : "flex";
+  const mainClass = shellTab === "chats"
+    ? `${selected ? "flex" : "hidden md:flex"}`
+    : "hidden md:flex";
   const contacts = useMemo(() => {
     const ids = new Set<string>();
     chats.forEach((chat) => chat.memberIds.forEach((id) => { if (profile && id !== profile.uid) ids.add(id); }));
@@ -156,99 +164,84 @@ export function AppShell() {
   if (!isConfigured) {
     return <main className="grid min-h-dvh place-items-center bg-ink px-6 text-center"><div><h1 className="font-serif text-4xl font-light">Add Supabase keys</h1><p className="mt-2 text-muted-foreground">Set the values in .env.local and restart the app.</p></div></main>;
   }
-  if (!ready || (user && !profileLoaded) || (user && profile && !identity && !keyProblem && !needsUnlock)) {
-    return <main className="grid min-h-dvh place-items-center bg-ink text-center"><div><h1 className="font-serif text-5xl font-light tracking-tight">Pingora</h1><p className="mt-2 text-sm text-muted-foreground">Every moment connected.</p></div></main>;
+  if (!ready || (user && !profileLoaded)) {
+    return <main className="grid min-h-dvh place-items-center bg-ink text-center"><div><PingoraMark className="mx-auto mb-4 size-16" /><h1 className="font-serif text-5xl font-light tracking-tight">Pingora</h1><p className="mt-2 text-sm text-muted-foreground">Every moment connected.</p></div></main>;
   }
   if (!user) return <AuthScreen onSignedIn={setUser} />;
-  if (needsUnlock && user) {
-    return (
-      <main className="grid min-h-dvh place-items-center bg-ink px-4">
-        <section className="w-full max-w-md rounded-[28px] border border-line bg-panel p-8">
-          <h1 className="font-serif text-4xl font-light text-center">Unlock messages</h1>
-          <p className="mt-3 text-center text-sm leading-relaxed text-muted-foreground">Enter your account password to load your encryption key on this device.</p>
-          <form className="mt-6 space-y-3" onSubmit={async (event) => {
-            event.preventDefault();
-            setUnlockError("");
-            const ok = await restoreIdentityWithPassword(user.uid, unlockPassword);
-            if (!ok) { setUnlockError("Wrong password or backup is missing."); return; }
-            const loaded = await loadIdentity(user.uid);
-            if (loaded) { setIdentity(loaded); setNeedsUnlock(false); }
-          }}>
-            <Input type="password" value={unlockPassword} placeholder="Account password" autoComplete="current-password" onChange={(event) => setUnlockPassword(event.target.value)} required />
-            {unlockError ? <p className="text-sm text-destructive">{unlockError}</p> : null}
-            <Button className="w-full" type="submit">Unlock</Button>
-          </form>
-        </section>
-      </main>
-    );
-  }
-  if (keyProblem) {
-    return (
-      <main className="grid min-h-dvh place-items-center bg-ink px-4">
-        <section className="max-w-md rounded-[28px] border border-line bg-panel p-8 text-center">
-        <h1 className="font-serif text-4xl font-light">Encryption key missing</h1>
-        <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{keyProblem}</p>
-        <Button className="mt-6" type="button" onClick={async () => {
-          const { getSupabase } = await import("@/lib/supabase");
-          await getSupabase().auth.signOut();
-          window.location.reload();
-        }}>Sign out and use another device</Button>
-        <Button className="mt-3 w-full" variant="outline" type="button" onClick={async () => {
-          const next = await ensureIdentity(user.uid);
-          const { updateProfile } = await import("@/lib/users");
-          const current = profile || await readProfile(user.uid);
-          if (current) await updateProfile(current, { publicKey: bytesToB64(next.publicKey) });
-          setIdentity(next);
-          setKeyProblem("");
-        }}>Reset key (loses older messages)</Button>
-        </section>
-      </main>
-    );
-  }
-  if (!profile) {
-    if (!identity) return <main className="grid min-h-dvh place-items-center bg-ink text-center"><div><h1 className="font-serif text-5xl font-light">Pingora</h1><p className="mt-2 text-sm text-muted-foreground">Every moment connected.</p></div></main>;
-    return <ProfileSetup user={user} identity={identity} onDone={() => undefined} />;
-  }
-  if (!identity) return <main className="grid min-h-dvh place-items-center bg-ink text-center"><div><h1 className="font-serif text-5xl font-light">Pingora</h1><p className="mt-2 text-sm text-muted-foreground">Every moment connected.</p></div></main>;
+  if (!profile) return <ProfileSetup user={user} onDone={() => undefined} />;
 
   async function forwardTo(chat: ChatRecord) {
-    if (!profile || !identity) return;
-    await sendPayload({ chat, me: profile, identity, type: "text", text: forwardText });
+    if (!profile) return;
+    await sendPayload({ chat, me: profile, type: "text", text: forwardText });
     setDialog(null);
     setSelectedId(chat.id);
   }
 
+  function openTab(tab: ShellTab) {
+    void unlockAudio();
+    setShellTab(tab);
+    if (tab !== "chats") setSelectedId(null);
+  }
+
   return (
-    <div className="relative flex h-dvh w-full flex-col overflow-hidden bg-ink text-fg">
-      <div className="grid min-h-0 w-full flex-1 md:grid-cols-[380px_minmax(0,1fr)]">
-      <aside className={`${selected ? "hidden md:flex" : "flex"} h-full min-h-0 flex-col overflow-hidden border-r border-line bg-panel`}>
-        <header className="flex h-[76px] items-center gap-2 px-4">
-          <button className="flex min-w-0 flex-1 items-center gap-3 text-left" type="button" onClick={() => setDialog("profile")} aria-label="Profile">
-            <Avatar name={profile.displayName} photo={profile.photoURL} small />
-            <span className="min-w-0">
-              <span className="block font-serif text-[1.35rem] leading-none tracking-tight">Pingora</span>
-              <span className="mt-1.5 block truncate text-[11px] tracking-wide text-muted-foreground">@{profile.username}</span>
-            </span>
-          </button>
-          <ThemeToggle theme={theme} onTheme={setThemeMode} />
-          <Button variant="ghost" size="icon" type="button" aria-label="New group" onClick={() => setDialog("group")}><Users /></Button>
-          <Button size="icon" type="button" aria-label="New chat" onClick={() => setDialog("new")}><MessageSquarePlus /></Button>
-        </header>
-        {showArchived ? null : <StatusTray me={profile} identity={identity} contacts={contacts} onOpen={setStatusUid} />}
-        <ChatList me={profile.uid} chats={chats} profiles={profiles} selectedId={selectedId} query={query} onQuery={setQuery} archived={showArchived} onSelect={(id) => { setSelectedId(id); setInfo(false); }} />
-        <button className="flex items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-muted-foreground hover:bg-white/5 hover:text-fg" type="button" onClick={() => setShowArchived((value) => !value)}>
-          <Archive className="size-4 text-gold" />
-          {showArchived ? "Back to chats" : "Archived"}
-          <span className="ml-auto text-xs">{chats.filter((chat) => chat.members[profile.uid]?.archived).length}</span>
-        </button>
+    <div className="relative flex h-dvh w-full flex-col overflow-hidden bg-ink pb-[3.35rem] text-fg md:pb-0">
+      <div className="flex min-h-0 w-full flex-1">
+        <IconSidebar profile={profile} active={shellTab} onTab={openTab} onProfile={() => setDialog("profile")} />
+        <div className="grid min-h-0 min-w-0 flex-1 md:grid-cols-[minmax(0,380px)_minmax(0,1fr)]">
+      <aside className={`${asideClass} h-full min-h-0 flex-col overflow-hidden border-r border-line bg-panel`}>
+        {shellTab === "chats" ? (
+          <>
+            <header className="flex h-[4.25rem] shrink-0 items-center gap-2 px-4">
+              <button className="md:hidden" type="button" aria-label="Profile" onClick={() => setDialog("profile")}>
+                <Avatar name={profile.displayName} photo={profile.photoURL} small />
+              </button>
+              <span className="min-w-0 flex-1 font-serif text-2xl tracking-tight">Chats</span>
+              <ThemeToggle theme={theme} onTheme={setThemeMode} />
+              <Button variant="ghost" size="icon" type="button" aria-label="New group" onClick={() => setDialog("group")}><Users /></Button>
+              <Button size="icon" type="button" aria-label="New chat" onClick={() => setDialog("new")}><MessageSquarePlus /></Button>
+            </header>
+            <ChatList me={profile.uid} chats={chats} profiles={profiles} selectedId={selectedId} query={query} onQuery={setQuery} archived={showArchived} onSelect={(id) => { setSelectedId(id); setInfo(false); }} />
+            <button className="flex shrink-0 items-center gap-2 border-t border-line px-4 py-3 text-left text-sm text-muted-foreground hover:bg-white/5 hover:text-fg" type="button" onClick={() => setShowArchived((value) => !value)}>
+              <Archive className="size-4 text-gold" />
+              {showArchived ? "Back to chats" : "Archived"}
+              <span className="ml-auto text-xs">{chats.filter((chat) => chat.members[profile.uid]?.archived).length}</span>
+            </button>
+          </>
+        ) : null}
+        {shellTab === "status" ? (
+          <>
+            <header className="flex h-[4.25rem] shrink-0 items-center gap-2 px-4">
+              <button className="md:hidden" type="button" aria-label="Profile" onClick={() => setDialog("profile")}>
+                <Avatar name={profile.displayName} photo={profile.photoURL} small />
+              </button>
+              <span className="min-w-0 flex-1 font-serif text-2xl tracking-tight">Status</span>
+            </header>
+            <StatusTab me={profile} contacts={contacts} onOpen={(uid) => { setStatusUid(uid); }} />
+          </>
+        ) : null}
+        {shellTab === "calls" ? (
+          <>
+            <header className="flex h-[4.25rem] shrink-0 items-center gap-2 px-4">
+              <button className="md:hidden" type="button" aria-label="Profile" onClick={() => setDialog("profile")}>
+                <Avatar name={profile.displayName} photo={profile.photoURL} small />
+              </button>
+              <span className="min-w-0 flex-1 font-serif text-2xl tracking-tight">Calls</span>
+            </header>
+            <CallHistory
+              me={profile.uid}
+              profiles={profiles}
+              onCall={(peerId, video) => setCall({ role: "caller", peerId, video })}
+            />
+          </>
+        ) : null}
       </aside>
-      <main className={`${selected ? "flex" : "hidden md:flex"} relative h-full min-h-0 min-w-0 overflow-hidden bg-ink`}>
+      <main className={`${mainClass} relative flex h-full min-h-0 min-w-0 overflow-hidden bg-ink ${selected ? "flex-row" : "flex-col"}`}>
         {selected ? (
           <>
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
             <Thread
               chat={selected}
               me={profile}
-              identity={identity}
               profiles={profiles}
               isContact
               onBack={() => setSelectedId(null)}
@@ -259,18 +252,22 @@ export function AppShell() {
               }}
               onForward={(text) => { setForwardText(text); setDialog("forward"); }}
             />
+            </div>
             {info ? (
               <ChatInfo
                 chat={selected}
                 me={profile}
-                identity={identity}
                 profiles={profiles}
                 onClose={() => setInfo(false)}
               />
             ) : null}
           </>
+        ) : shellTab !== "chats" ? (
+          <div className="grid h-full place-items-center px-6 text-center text-sm text-muted-foreground md:hidden">
+            <p>Use <strong className="text-fg">Chats</strong> for messages. Status and calls live in the left panel.</p>
+          </div>
         ) : (
-          <div className={`wallpaper wallpaper-${wallpaper} grid h-full w-full place-items-center px-6`}>
+          <div className={`${wallpaperClassName(wallpaper)} grid h-full w-full place-items-center px-6`} style={wallpaperStyle(wallpaper)}>
             <div className="max-w-sm text-center">
               <span className="mx-auto grid size-16 place-items-center rounded-full bg-gold/15 text-gold ring-1 ring-gold/30">
                 <MessageCircle className="size-7" />
@@ -287,19 +284,20 @@ export function AppShell() {
         )}
       </main>
       </div>
+      </div>
+      <BottomNav className="fixed inset-x-0 bottom-0 z-20 md:hidden" active={shellTab} onChange={openTab} />
       {dialog === "profile" ? (
         <>
-          <button className="absolute inset-0 z-30 bg-black/40 md:left-[380px]" type="button" aria-label="Close profile" onClick={() => setDialog(null)} />
-          <ProfilePanel profile={profile} theme={theme} onTheme={setThemeMode} onClose={() => setDialog(null)} onKeyReset={() => window.location.reload()} />
+          <button className="absolute inset-0 z-30 bg-black/40 md:left-[calc(4.25rem+380px)]" type="button" aria-label="Close profile" onClick={() => setDialog(null)} />
+          <ProfilePanel profile={profile} theme={theme} onTheme={setThemeMode} onClose={() => setDialog(null)} />
         </>
       ) : null}
       {dialog === "new" || dialog === "group" ? (
         <>
-          <button className="absolute inset-0 z-30 bg-black/40 md:left-[380px]" type="button" aria-label="Close" onClick={() => setDialog(null)} />
+          <button className="absolute inset-0 z-30 bg-black/40 md:left-[calc(4.25rem+380px)]" type="button" aria-label="Close" onClick={() => setDialog(null)} />
           <PeopleDialog
             mode={dialog}
             me={profile}
-            identity={identity}
             onClose={() => setDialog(null)}
             onOpen={(id) => { setSelectedId(id); setDialog(null); }}
           />
@@ -327,22 +325,21 @@ export function AppShell() {
         <StatusViewer
           uid={statusUid}
           me={profile}
-          identity={identity}
           name={profiles[statusUid]?.displayName || "Status"}
           onClose={() => setStatusUid(null)}
         />
       ) : null}
       {incoming && !call ? (
-        <Dialog open onOpenChange={(open) => { if (!open) { void endCall(incoming.id); setIncoming(null); } }}>
-          <DialogContent className="text-center">
+        <Dialog open onOpenChange={(open) => { if (!open) { stopRingtone(); void endCall(incoming.id); setIncoming(null); } }}>
+          <DialogContent className="border-gold/30 text-center sm:max-w-sm">
             <DialogHeader className="items-center">
-              <p className="text-[11px] tracking-[0.28em] text-gold uppercase">Incoming</p>
-              <DialogTitle>{profiles[incoming.callerId]?.displayName || "Someone"} is calling</DialogTitle>
+              <p className="animate-pulse text-[11px] tracking-[0.28em] text-gold uppercase">Incoming call</p>
+              <DialogTitle>{profiles[incoming.callerId]?.displayName || "Someone"}</DialogTitle>
             </DialogHeader>
             <p className="text-sm text-muted-foreground">{incoming.video ? "Video call" : "Voice call"}</p>
-            <DialogFooter className="justify-center sm:justify-center">
-              <Button variant="destructive" type="button" onClick={() => { void endCall(incoming.id); setIncoming(null); }}>Decline</Button>
-              <Button type="button" onClick={() => setCall({ role: "callee", peerId: incoming.callerId, video: incoming.video, callId: incoming.id })}>Accept</Button>
+            <DialogFooter className="justify-center gap-3 sm:justify-center">
+              <Button variant="destructive" type="button" onClick={() => { stopRingtone(); void endCall(incoming.id); setIncoming(null); }}>Decline</Button>
+              <Button className="btn-auth-primary border-0" type="button" onClick={() => { stopRingtone(); setCall({ role: "callee", peerId: incoming.callerId, video: incoming.video, callId: incoming.id }); }}>Accept</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
@@ -365,13 +362,11 @@ export function AppShell() {
 function PeopleDialog({
   mode,
   me,
-  identity,
   onClose,
   onOpen,
 }: {
   mode: "new" | "group";
   me: UserProfile;
-  identity: Identity;
   onClose: () => void;
   onOpen: (id: string) => void;
 }) {
@@ -444,7 +439,7 @@ function PeopleDialog({
       </div>
       {mode === "group" ? (
         <div className="border-t border-line bg-panel p-3">
-          <Button className="w-full" type="button" disabled={!picked.length} onClick={async () => onOpen(await createGroup(me, identity, title, picked.map((person) => person.uid)))}>Create group</Button>
+          <Button className="w-full" type="button" disabled={!picked.length} onClick={async () => onOpen(await createGroup(me, title, picked.map((person) => person.uid)))}>Create group</Button>
         </div>
       ) : null}
     </aside>

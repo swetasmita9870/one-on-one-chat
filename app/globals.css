@@ -139,6 +139,11 @@ body {
   background-repeat: repeat;
 }
 
+.wallpaper-photo {
+  background-repeat: no-repeat;
+  background-color: #07111a;
+}
+
 .wallpaper-doodle {
   background-image:
     radial-gradient(circle at 18px 22px, rgba(0, 168, 132, 0.28) 1.4px, transparent 1.6px),

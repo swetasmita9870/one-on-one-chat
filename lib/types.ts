@@ -50,6 +50,7 @@ export type MessageRecord = {
   senderId: string;
   createdAt: number;
   type: MessageKind;
+  body: string;
   ciphertext: string;
   nonce: string;
   wraps: Record<string, string>;
@@ -73,6 +74,7 @@ export type MessageRecord = {
 export type StatusItem = {
   id: string;
   uid: string;
+  body: string;
   ciphertext: string;
   nonce: string;
   wraps: Record<string, string>;

@@ -8,6 +8,23 @@ export type ThemeMode = "dark" | "light";
 
 const KEY = "pingora-theme";
 
+/** Matches `--color-ink` in `app/globals.css` (URL bar / PWA chrome). */
+export const THEME_COLOR: Record<ThemeMode, string> = {
+  dark: "#07111a",
+  light: "#efeae2",
+};
+
+function syncThemeColor(theme: ThemeMode) {
+  if (typeof document === "undefined") return;
+  let el = document.querySelector('meta[name="theme-color"]');
+  if (!el) {
+    el = document.createElement("meta");
+    el.setAttribute("name", "theme-color");
+    document.head.appendChild(el);
+  }
+  el.setAttribute("content", THEME_COLOR[theme]);
+}
+
 export function readSavedTheme(): ThemeMode {
   if (typeof window === "undefined") return "dark";
   const saved = localStorage.getItem(KEY);
@@ -17,6 +34,7 @@ export function readSavedTheme(): ThemeMode {
 export function writeTheme(theme: ThemeMode) {
   localStorage.setItem(KEY, theme);
   document.body.dataset.theme = theme;
+  syncThemeColor(theme);
 }
 
 export function ThemeToggle({ theme, onTheme }: { theme: ThemeMode; onTheme: (theme: ThemeMode) => void }) {

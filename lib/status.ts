@@ -1,12 +1,3 @@
-import { b64ToBytes } from "./bytes";
-import {
-  decryptJson,
-  encryptJson,
-  randomContentKey,
-  unwrapContentKey,
-  wrapContentKey,
-  type Identity,
-} from "./crypto";
 import { getSupabase, live } from "./supabase";
 import type { StatusItem, UserProfile } from "./types";
 
@@ -19,6 +10,7 @@ export function watchStatus(uid: string, onData: (items: StatusItem[]) => void) 
         .map((item) => ({
           id: item.id as string,
           uid,
+          body: (item.body as string) || "",
           ciphertext: item.ciphertext as string,
           nonce: item.nonce as string,
           wraps: (item.wraps || {}) as StatusItem["wraps"],
@@ -35,23 +27,14 @@ export function watchStatus(uid: string, onData: (items: StatusItem[]) => void) 
   }, `user_id=eq.${uid}`);
 }
 
-export async function postStatus(input: {
-  me: UserProfile;
-  identity: Identity;
-  contacts: UserProfile[];
-  text: string;
-}) {
-  const contentKey = randomContentKey();
-  const wraps: Record<string, string> = {};
-  for (const person of [input.me, ...input.contacts.filter((person) => person.uid !== input.me.uid)]) {
-    wraps[person.uid] = await wrapContentKey(contentKey, input.identity.secret, b64ToBytes(person.publicKey), input.me.uid);
-  }
-  const payload = await encryptJson({ text: input.text, mime: "", fileName: "" }, contentKey);
+export async function postStatus(input: { me: UserProfile; text: string }) {
+  const text = input.text.trim();
   const { error } = await getSupabase().from("statuses").insert({
     user_id: input.me.uid,
-    ciphertext: payload.ciphertext,
-    nonce: payload.nonce,
-    wraps,
+    body: text,
+    ciphertext: "",
+    nonce: "",
+    wraps: {},
     type: "text",
     file_path: null,
     file_nonce: null,
@@ -68,16 +51,6 @@ export async function markStatusViewed(uid: string, itemId: string, viewerId: st
   await getSupabase().from("statuses").update({ viewers }).eq("id", itemId);
 }
 
-export async function decryptStatus(item: StatusItem, me: UserProfile, identity: Identity) {
-  const packed = item.wraps?.[me.uid];
-  if (!packed) throw new Error("This status is not encrypted for you.");
-  const authorId = packed.slice(0, packed.indexOf(":"));
-  const authorKey = authorId === me.uid ? me.publicKey : item.wraps[authorId] ? me.publicKey : me.publicKey;
-  void authorKey;
-  const { readProfile } = await import("./users");
-  const author = authorId === me.uid ? me : await readProfile(authorId);
-  if (!author) throw new Error("Missing status key.");
-  const contentKey = await unwrapContentKey(packed, identity.secret, b64ToBytes(author.publicKey));
-  const meta = await decryptJson<{ text?: string; mime?: string }>(item.ciphertext, item.nonce, contentKey);
-  return { text: meta.text || "", url: "" };
+export function statusText(item: StatusItem): string {
+  return item.body || "";
 }

@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import type { ChatRecord, MessageRecord, UserProfile } from "./types";
+import type { WallpaperId } from "./wallpapers";
 
-export const WALLPAPERS = ["doodle", "aurora", "leaves", "midnight", "sand"] as const;
-export type WallpaperId = (typeof WALLPAPERS)[number];
+export { WALLPAPERS, type WallpaperId } from "./wallpapers";
 
 type AppState = {
   profiles: Record<string, UserProfile>;

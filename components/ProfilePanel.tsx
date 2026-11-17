@@ -1,38 +1,25 @@
 "use client";
 
 import { useState } from "react";
-import { ArrowLeft, Camera, KeyRound, LogOut, Moon, Sun } from "lucide-react";
-import { createIdentity } from "@/lib/crypto";
+import { ArrowLeft, Camera, LogOut, Moon, Sun } from "lucide-react";
 import { getSupabase } from "@/lib/supabase";
-import { saveIdentity } from "@/lib/keys";
-import { WALLPAPERS, useAppStore, type WallpaperId } from "@/lib/store";
+import { useAppStore } from "@/lib/store";
+import { GRADIENT_WALLPAPERS, PHOTO_WALLPAPERS, WALLPAPER_LABELS, wallpaperClassName, wallpaperStyle, type WallpaperId } from "@/lib/wallpapers";
 import type { UserProfile } from "@/lib/types";
-import { uploadIdentityBackup } from "@/lib/identity-sync";
 import { updateProfile, uploadAvatar } from "@/lib/users";
-import { bytesToB64 } from "@/lib/bytes";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-
-const wallpaperLabel: Record<WallpaperId, string> = {
-  doodle: "Doodle",
-  aurora: "Aurora",
-  leaves: "Leaves",
-  midnight: "Midnight",
-  sand: "Sand",
-};
 
 export function ProfilePanel({
   profile,
   theme,
   onTheme,
   onClose,
-  onKeyReset,
 }: {
   profile: UserProfile;
   theme: "dark" | "light";
   onTheme: (theme: "dark" | "light") => void;
   onClose: () => void;
-  onKeyReset: () => void;
 }) {
   const wallpaper = useAppStore((state) => state.wallpaper);
   const setWallpaper = useAppStore((state) => state.setWallpaper);
@@ -40,8 +27,6 @@ export function ProfilePanel({
   const [about, setAbout] = useState(profile.about);
   const [username, setUsername] = useState(profile.username);
   const [error, setError] = useState("");
-  const [backupPassword, setBackupPassword] = useState("");
-  const [backupMsg, setBackupMsg] = useState("");
   const dirty = displayName !== profile.displayName || about !== profile.about || username !== profile.username;
 
   async function save() {
@@ -119,40 +104,28 @@ export function ProfilePanel({
             <button className={`flex items-center justify-center gap-2 rounded-full py-2 text-sm transition ${theme === "dark" ? "bg-panel text-fg shadow ring-1 ring-line" : "text-muted-foreground hover:bg-white/5"}`} type="button" onClick={() => onTheme("dark")}><Moon className="size-4" /> Dark</button>
             <button className={`flex items-center justify-center gap-2 rounded-full py-2 text-sm transition ${theme === "light" ? "bg-white text-ink shadow ring-1 ring-line" : "text-muted-foreground hover:bg-white/5"}`} type="button" onClick={() => onTheme("light")}><Sun className="size-4" /> Light</button>
           </div>
-          <div className="mt-4 grid grid-cols-5 gap-2">
-            {WALLPAPERS.map((id) => (
-              <button key={id} type="button" aria-label={wallpaperLabel[id]} title={wallpaperLabel[id]} onClick={() => setWallpaper(id)} className={`wallpaper wallpaper-${id} h-12 rounded-xl ring-2 ring-offset-2 ring-offset-panel ${wallpaper === id ? "ring-gold" : "ring-transparent"}`} />
+          <p className="mt-4 text-xs text-muted-foreground">Chat background</p>
+          <div className="mt-2 grid grid-cols-5 gap-2">
+            {GRADIENT_WALLPAPERS.map((id) => (
+              <button key={id} type="button" aria-label={WALLPAPER_LABELS[id]} title={WALLPAPER_LABELS[id]} onClick={() => setWallpaper(id)} className={`${wallpaperClassName(id)} h-12 rounded-xl ring-2 ring-offset-2 ring-offset-panel ${wallpaper === id ? "ring-gold" : "ring-transparent"}`} />
+            ))}
+          </div>
+          <div className="mt-2 grid grid-cols-3 gap-2">
+            {PHOTO_WALLPAPERS.map(({ id }) => (
+              <button
+                key={id}
+                type="button"
+                aria-label={WALLPAPER_LABELS[id]}
+                title={WALLPAPER_LABELS[id]}
+                onClick={() => setWallpaper(id)}
+                className={`${wallpaperClassName(id)} h-12 rounded-xl ring-2 ring-offset-2 ring-offset-panel ${wallpaper === id ? "ring-gold" : "ring-transparent"}`}
+                style={wallpaperStyle(id)}
+              />
             ))}
           </div>
         </section>
 
-        <section className="bg-panel px-5 py-4">
-          <p className="text-xs font-medium tracking-wide text-gold">Message backup</p>
-          <p className="mt-1 text-xs text-muted-foreground">Save your encryption key with your account password so Vercel and other browsers can read old messages.</p>
-          <Input className="mt-3" type="password" value={backupPassword} placeholder="Account password" autoComplete="current-password" onChange={(event) => setBackupPassword(event.target.value)} />
-          <Button className="mt-2 w-full" variant="secondary" type="button" disabled={!backupPassword.trim()} onClick={async () => {
-            setBackupMsg("");
-            try {
-              await uploadIdentityBackup(profile.uid, backupPassword.trim());
-              setBackupMsg("Backup saved.");
-              setBackupPassword("");
-            } catch (err) {
-              setBackupMsg(err instanceof Error ? err.message : "Could not save backup.");
-            }
-          }}>Back up encryption key</Button>
-          {backupMsg ? <p className="mt-2 text-xs text-muted-foreground">{backupMsg}</p> : null}
-        </section>
-
         <section className="bg-panel">
-          <button className="flex w-full items-center gap-3 px-5 py-4 text-left text-sm text-danger hover:bg-white/[0.03]" type="button" onClick={async () => {
-            const identity = createIdentity();
-            await saveIdentity(profile.uid, identity);
-            await updateProfile(profile, { publicKey: bytesToB64(identity.publicKey) });
-            onKeyReset();
-          }}>
-            <KeyRound className="size-4" />
-            Reset encryption key
-          </button>
           <button className="flex w-full items-center gap-3 px-5 py-4 text-left text-sm hover:bg-white/[0.03]" type="button" onClick={() => getSupabase().auth.signOut()}>
             <LogOut className="size-4 text-gold" />
             Sign out

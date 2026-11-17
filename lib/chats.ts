@@ -1,8 +1,5 @@
-import { b64ToBytes } from "./bytes";
-import { randomContentKey, unwrapContentKey, wrapContentKey, type Identity } from "./crypto";
 import { getSupabase, insertQuiet, live } from "./supabase";
 import type { ChatRecord, MemberInfo, UserProfile } from "./types";
-import { readProfile } from "./users";
 
 export function directChatId(a: string, b: string) {
   return [a, b].sort().join("__");
@@ -115,20 +112,8 @@ export async function openDirect(me: UserProfile, other: UserProfile): Promise<s
   return id;
 }
 
-async function wrapGroupKey(groupKey: Uint8Array, me: UserProfile, identity: Identity, memberIds: string[]) {
-  const wraps: Record<string, string> = {};
-  for (const uid of memberIds) {
-    const profile = uid === me.uid ? me : await readProfile(uid);
-    if (!profile?.publicKey) throw new Error("A member does not have an encryption key yet.");
-    wraps[uid] = await wrapContentKey(groupKey, identity.secret, b64ToBytes(profile.publicKey), me.uid);
-  }
-  return wraps;
-}
-
-export async function createGroup(me: UserProfile, identity: Identity, title: string, memberIds: string[]): Promise<string> {
+export async function createGroup(me: UserProfile, title: string, memberIds: string[]): Promise<string> {
   const ids = Array.from(new Set([me.uid, ...memberIds]));
-  const groupKey = randomContentKey();
-  const wraps = await wrapGroupKey(groupKey, me, identity, ids);
   const id = `g_${crypto.randomUUID()}`;
   const now = Date.now();
   await insertQuiet("chats", {
@@ -139,8 +124,8 @@ export async function createGroup(me: UserProfile, identity: Identity, title: st
     updated_at: now,
     last_message: null,
     disappearing_ms: null,
-    current_epoch: 1,
-    epochs: { "1": wraps },
+    current_epoch: 0,
+    epochs: {},
   });
   await insertQuiet("chat_members", { chat_id: id, user_id: me.uid, role: "admin", joined_at: now });
   const others = ids.filter((uid) => uid !== me.uid);
@@ -150,42 +135,18 @@ export async function createGroup(me: UserProfile, identity: Identity, title: st
   return id;
 }
 
-async function currentGroupKey(chat: ChatRecord, me: UserProfile, identity: Identity) {
-  const epoch = String(chat.currentEpoch);
-  const packed = chat.epochs?.[epoch]?.[me.uid];
-  if (!packed) throw new Error("You don't have this group's key on this browser.");
-  const authorId = packed.slice(0, packed.indexOf(":"));
-  const author = authorId === me.uid ? me : await readProfile(authorId);
-  if (!author) throw new Error("Missing key author.");
-  return unwrapContentKey(packed, identity.secret, b64ToBytes(author.publicKey));
-}
-
-export async function addGroupMember(chat: ChatRecord, me: UserProfile, identity: Identity, uid: string) {
+export async function addGroupMember(chat: ChatRecord, me: UserProfile, uid: string) {
   if (chat.members[me.uid]?.role !== "admin") throw new Error("Only an admin can add people.");
   if (chat.memberIds.includes(uid)) return;
-  const groupKey = await currentGroupKey(chat, me, identity);
-  const profile = await readProfile(uid);
-  if (!profile) throw new Error("That person has no profile.");
-  const wrap = await wrapContentKey(groupKey, identity.secret, b64ToBytes(profile.publicKey), me.uid);
-  const epoch = String(chat.currentEpoch);
-  const epochs = { ...chat.epochs, [epoch]: { ...(chat.epochs[epoch] || {}), [uid]: wrap } };
   await getSupabase().from("chat_members").insert({ chat_id: chat.id, user_id: uid, role: "member", joined_at: Date.now() });
-  await getSupabase().from("chats").update({ epochs, updated_at: Date.now() }).eq("id", chat.id);
+  await getSupabase().from("chats").update({ updated_at: Date.now() }).eq("id", chat.id);
 }
 
-export async function removeGroupMember(chat: ChatRecord, me: UserProfile, identity: Identity, uid: string) {
+export async function removeGroupMember(chat: ChatRecord, me: UserProfile, uid: string) {
   if (chat.members[me.uid]?.role !== "admin") throw new Error("Only an admin can remove people.");
   if (uid === me.uid) throw new Error("Choose another admin before leaving.");
-  const nextKey = randomContentKey();
-  const remaining = chat.memberIds.filter((id) => id !== uid);
-  const wraps = await wrapGroupKey(nextKey, me, identity, remaining);
-  const nextEpoch = chat.currentEpoch + 1;
   await getSupabase().from("chat_members").delete().eq("chat_id", chat.id).eq("user_id", uid);
-  await getSupabase().from("chats").update({
-    current_epoch: nextEpoch,
-    epochs: { ...chat.epochs, [String(nextEpoch)]: wraps },
-    updated_at: Date.now(),
-  }).eq("id", chat.id);
+  await getSupabase().from("chats").update({ updated_at: Date.now() }).eq("id", chat.id);
 }
 
 export async function updateGroup(chatId: string, patch: { title?: string; photoURL?: string }) {
@@ -227,22 +188,3 @@ export async function getChat(id: string): Promise<ChatRecord | null> {
   const { data: members } = await getSupabase().from("chat_members").select("*").eq("chat_id", id);
   return assemble([data as ChatRow], (members || []) as MemberRow[])[0] || null;
 }
-
-export async function ensureGroupWraps(chat: ChatRecord, me: UserProfile, identity: Identity) {
-  if (chat.type !== "group") return;
-  const epoch = String(chat.currentEpoch);
-  const existing = chat.epochs?.[epoch] || {};
-  if (!existing[me.uid]) return;
-  const missing = chat.memberIds.filter((uid) => !existing[uid]);
-  if (!missing.length) return;
-  const groupKey = await currentGroupKey(chat, me, identity);
-  const next = { ...existing };
-  for (const uid of missing) {
-    const profile = uid === me.uid ? me : await readProfile(uid);
-    if (!profile) continue;
-    next[uid] = await wrapContentKey(groupKey, identity.secret, b64ToBytes(profile.publicKey), me.uid);
-  }
-  await getSupabase().from("chats").update({ epochs: { ...chat.epochs, [epoch]: next } }).eq("id", chat.id);
-}
-
-export { currentGroupKey };

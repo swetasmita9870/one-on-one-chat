@@ -3,12 +3,13 @@
 import { useEffect } from "react";
 import { AppShell } from "@/components/AppShell";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { WALLPAPERS, useAppStore, type WallpaperId } from "@/lib/store";
+import { useAppStore } from "@/lib/store";
+import { isWallpaperId } from "@/lib/wallpapers";
 
 export default function Page() {
   useEffect(() => {
     const saved = localStorage.getItem("justus-wallpaper");
-    if (saved && WALLPAPERS.includes(saved as WallpaperId)) useAppStore.getState().setWallpaper(saved as WallpaperId);
+    if (saved && isWallpaperId(saved)) useAppStore.getState().setWallpaper(saved);
   }, []);
   return (
     <TooltipProvider delayDuration={250}>

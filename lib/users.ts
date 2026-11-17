@@ -1,5 +1,3 @@
-import { bytesToB64 } from "./bytes";
-import type { Identity } from "./crypto";
 import { useAppStore } from "./store";
 import { getSupabase, live } from "./supabase";
 import type { Privacy, UserProfile } from "./types";
@@ -79,7 +77,6 @@ export async function createProfile(input: {
   username: string;
   about: string;
   photoURL: string;
-  identity: Identity;
 }): Promise<void> {
   const usernameLower = input.username.trim().toLowerCase();
   const { error } = await getSupabase().from("profiles").insert({
@@ -89,7 +86,7 @@ export async function createProfile(input: {
     username_lower: usernameLower,
     about: input.about.trim() || "Hey there, I'm using Pingora.",
     photo_url: input.photoURL,
-    public_key: bytesToB64(input.identity.publicKey),
+    public_key: "",
     last_seen: Date.now(),
     online: true,
     privacy: emptyPrivacy(),

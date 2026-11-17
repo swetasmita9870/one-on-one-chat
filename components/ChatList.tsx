@@ -11,9 +11,10 @@ import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
-export function Avatar({ name, photo, small }: { name: string; photo?: string; small?: boolean }) {
+export function Avatar({ name, photo, small, large }: { name: string; photo?: string; small?: boolean; large?: boolean }) {
+  const size = large ? "size-28 text-3xl" : small ? "size-10 text-sm" : "size-12";
   return (
-    <ShadAvatar className={small ? "size-10 text-sm" : "size-12"}>
+    <ShadAvatar className={size}>
       {photo ? <AvatarImage src={photo} alt="" /> : null}
       <AvatarFallback>{(name || "?").slice(0, 1).toUpperCase()}</AvatarFallback>
     </ShadAvatar>
@@ -102,6 +103,7 @@ export function ChatList({
               </span>
               <span className="flex flex-col items-end gap-1">
                 <span className="text-xs whitespace-nowrap text-muted-foreground">{chat.lastMessage ? formatChatListTime(chat.lastMessage.at) : ""}</span>
+                {unread > 0 ? <Badge className="min-w-5 justify-center px-1.5">{unread}</Badge> : null}
                 {unread > 0 ? <Badge className="min-w-5 justify-center px-1.5">{unread}</Badge> : null}
               </span>
             </button>

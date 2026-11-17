@@ -7,11 +7,11 @@ import { chatPhoto, chatTitle, emojiOnly, lastSeenLabel, otherId } from "@/lib/f
 import { formatChatDay, formatMessageTime } from "@/lib/format-chat-time";
 import {
   clearUnread,
-  decryptMessage,
   deleteForEveryone,
   deleteForMe,
   editMessage,
   markReceipt,
+  messageText,
   purgeExpired,
   sendPayload,
   setReaction,
@@ -19,11 +19,11 @@ import {
   toggleStar,
   watchTyping,
 } from "@/lib/messages";
-import { sameTextMap, useChatMessages } from "@/lib/use-messages";
-import type { Identity } from "@/lib/crypto";
+import { useChatMessages } from "@/lib/use-messages";
 import type { ChatRecord, MessageRecord, UserProfile } from "@/lib/types";
 import { visibleField } from "@/lib/users";
 import { useAppStore } from "@/lib/store";
+import { wallpaperClassName, wallpaperStyle } from "@/lib/wallpapers";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Avatar } from "./ChatList";
@@ -33,7 +33,6 @@ import { WallpaperMenu } from "./WallpaperMenu";
 export function Thread({
   chat,
   me,
-  identity,
   profiles,
   isContact,
   onBack,
@@ -43,7 +42,6 @@ export function Thread({
 }: {
   chat: ChatRecord;
   me: UserProfile;
-  identity: Identity;
   profiles: Record<string, UserProfile>;
   isContact: boolean;
   onBack: () => void;
@@ -53,7 +51,6 @@ export function Thread({
 }) {
   const [limitCount, setLimitCount] = useState(80);
   const messages = useChatMessages(chat.id, limitCount);
-  const [texts, setTexts] = useState<Record<string, string>>({});
   const [typing, setTypingState] = useState<Record<string, number>>({});
   const [replyTo, setReplyTo] = useState<string | null>(null);
   const [editing, setEditing] = useState<MessageRecord | null>(null);
@@ -90,24 +87,6 @@ export function Thread({
   useEffect(() => { void clearUnread(chat.id, me.uid); }, [chat.id, me.uid]);
 
   useEffect(() => {
-    let cancel = false;
-    (async () => {
-      const next: Record<string, string> = {};
-      for (const message of messages) {
-        if (message.deletedForAll || message.deletedFor?.includes(me.uid)) continue;
-        try {
-          const payload = await decryptMessage(chat, message, me, identity);
-          next[message.id] = payload.text || "";
-        } catch {
-          next[message.id] = "Can't read on this browser";
-        }
-      }
-      if (!cancel) setTexts((current) => (sameTextMap(current, next) ? current : next));
-    })();
-    return () => { cancel = true; };
-  }, [chat, identity, me, messages]);
-
-  useEffect(() => {
     messages.forEach((message) => {
       if (message.senderId === me.uid || message.deletedForAll) return;
       if (!message.deliveredTo?.includes(me.uid)) void markReceipt(chat.id, message.id, me.uid, "deliveredTo");
@@ -120,15 +99,15 @@ export function Thread({
     return messages.filter((message) => {
       if (message.deletedFor?.includes(me.uid)) return false;
       if (!needle) return true;
-      return (texts[message.id] || "").toLowerCase().includes(needle);
+      return messageText(message).toLowerCase().includes(needle);
     });
-  }, [me.uid, messages, search, texts]);
+  }, [me.uid, messages, search]);
 
   useEffect(() => {
     const el = scroller.current;
     if (!el || !stickToBottom.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [shown, texts]);
+  }, [shown, messages]);
 
   const typers = Object.entries(typing)
     .filter(([uid, at]) => uid !== me.uid && Date.now() - at < 4000)
@@ -136,11 +115,11 @@ export function Thread({
 
   async function send(text: string) {
     if (editing) {
-      await editMessage(chat, editing, me, identity, text);
+      await editMessage(chat, editing, text);
       setEditing(null);
       return;
     }
-    await sendPayload({ chat, me, identity, type: "text", text, replyTo });
+    await sendPayload({ chat, me, type: "text", text, replyTo });
     setReplyTo(null);
   }
 
@@ -191,7 +170,8 @@ export function Thread({
       ) : null}
       <div
         ref={scroller}
-        className={`wallpaper wallpaper-${wallpaper} min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 py-3 sm:px-10`}
+        className={`${wallpaperClassName(wallpaper)} min-h-0 flex-1 space-y-2 overflow-y-auto overscroll-contain px-3 py-3 sm:px-10`}
+        style={wallpaperStyle(wallpaper)}
         onScroll={(event) => {
           const el = event.currentTarget;
           stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 96;
@@ -201,7 +181,7 @@ export function Thread({
         {shown.length === 0 ? (
           <div className="m-auto max-w-xs rounded-3xl bg-panel/80 px-6 py-5 text-center shadow-lg ring-1 ring-white/10 backdrop-blur">
             <p className="font-serif text-2xl">{search ? "Nothing matches" : "Say hello"}</p>
-            <p className="mt-2 text-sm text-muted-foreground">{search ? "Try a different word from this chat." : "This chat is encrypted on this browser."}</p>
+            <p className="mt-2 text-sm text-muted-foreground">{search ? "Try a different word from this chat." : "Send a message to start the conversation."}</p>
           </div>
         ) : null}
         {shown.map((message, index) => {
@@ -210,7 +190,7 @@ export function Thread({
           const read = others.every((id) => message.readBy?.includes(id));
           const delivered = others.some((id) => message.deliveredTo?.includes(id) || message.readBy?.includes(id));
           const reply = messages.find((item) => item.id === message.replyTo);
-          const body = texts[message.id] || "";
+          const body = messageText(message);
           const previous = shown[index - 1];
           const showDay = !previous || formatChatDay(previous.createdAt) !== formatChatDay(message.createdAt);
           const reactionCounts = Object.values(message.reactions || {}).reduce<Record<string, number>>((counts, emoji) => {
@@ -227,7 +207,7 @@ export function Thread({
                   </button>
                 ) : null}
                 {!mine && chat.type === "group" ? <div className="text-xs text-gold">{profiles[message.senderId]?.displayName}</div> : null}
-                {reply ? <div className="mb-1 rounded-xl border-l-2 border-gold bg-black/10 px-2 py-1 text-xs text-muted-foreground">{texts[reply.id] || "Message"}</div> : null}
+                {reply ? <div className="mb-1 rounded-xl border-l-2 border-gold bg-black/10 px-2 py-1 text-xs text-muted-foreground">{messageText(reply)}</div> : null}
                 <div className={message.deletedForAll || !body || emojiOnly(body) ? "" : "flex items-end gap-2"}>
                   {message.deletedForAll ? <div className="text-sm italic text-muted-foreground">This message was deleted</div> : (
                     body ? <div className={`min-w-0 whitespace-pre-wrap break-words ${emojiOnly(body) ? "text-4xl leading-tight" : "text-[15px] leading-snug"}`}>{body}</div> : null
@@ -269,8 +249,8 @@ export function Thread({
           );
         })}
       </div>
-      {replyTo ? <DraftBar label="Replying" text={texts[replyTo] || "Message"} onClear={() => setReplyTo(null)} /> : null}
-      {editing ? <DraftBar label="Editing" text={texts[editing.id] || "Message"} onClear={() => setEditing(null)} /> : null}
+      {replyTo ? <DraftBar label="Replying" text={messages.find((m) => m.id === replyTo) ? messageText(messages.find((m) => m.id === replyTo)!) : "Message"} onClear={() => setReplyTo(null)} /> : null}
+      {editing ? <DraftBar label="Editing" text={messageText(editing)} onClear={() => setEditing(null)} /> : null}
       <Composer onSend={send} onTyping={(active) => void setTyping(chat.id, me.uid, active)} />
     </section>
   );

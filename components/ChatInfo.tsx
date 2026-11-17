@@ -1,69 +1,49 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { safetyCode } from "@/lib/crypto";
-import type { Identity } from "@/lib/crypto";
+import { useState, type ReactNode } from "react";
+import { Archive, Clock, ImagePlus, Pin, Star, Timer, UserPlus, Users, X } from "lucide-react";
 import { addGroupMember, removeGroupMember, setDisappearing, setMemberFlag, updateGroup } from "@/lib/chats";
-import { chatTitle, otherId } from "@/lib/format";
-import { decryptMessage } from "@/lib/messages";
-import { sameTextMap, useChatMessages } from "@/lib/use-messages";
+import { chatPhoto, chatTitle, lastSeenLabel, otherId } from "@/lib/format";
+import { messageText } from "@/lib/messages";
+import { useChatMessages } from "@/lib/use-messages";
 import type { ChatRecord, UserProfile } from "@/lib/types";
-import { searchPeople, uploadAvatar } from "@/lib/users";
+import { searchPeople, uploadAvatar, visibleField } from "@/lib/users";
+import { Avatar } from "./ChatList";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
-const TIMERS: Array<[string, number | null]> = [
-  ["Off", null],
-  ["24 hours", 24 * 60 * 60 * 1000],
-  ["7 days", 7 * 24 * 60 * 60 * 1000],
-  ["90 days", 90 * 24 * 60 * 60 * 1000],
+const TIMERS: Array<{ label: string; value: string; ms: number | null }> = [
+  { label: "Off", value: "off", ms: null },
+  { label: "24 hours", value: "86400000", ms: 24 * 60 * 60 * 1000 },
+  { label: "7 days", value: "604800000", ms: 7 * 24 * 60 * 60 * 1000 },
+  { label: "90 days", value: "7776000000", ms: 90 * 24 * 60 * 60 * 1000 },
 ];
 
 export function ChatInfo({
   chat,
   me,
-  identity,
   profiles,
   onClose,
 }: {
   chat: ChatRecord;
   me: UserProfile;
-  identity: Identity;
   profiles: Record<string, UserProfile>;
   onClose: () => void;
 }) {
-  const [code, setCode] = useState("");
   const [username, setUsername] = useState("");
   const [error, setError] = useState("");
+  const [groupTitle, setGroupTitle] = useState(chat.title);
   const messages = useChatMessages(chat.id, 200);
-  const [texts, setTexts] = useState<Record<string, string>>({});
   const other = profiles[otherId(chat, me.uid)];
   const admin = chat.members[me.uid]?.role === "admin";
-  const starred = messages.filter((message) => message.starredBy?.includes(me.uid));
-
-  useEffect(() => {
-    let cancel = false;
-    (async () => {
-      const next: Record<string, string> = {};
-      for (const message of messages) {
-        if (!message.starredBy?.includes(me.uid) || message.deletedForAll) continue;
-        try {
-          next[message.id] = (await decryptMessage(chat, message, me, identity)).text || message.fileName || "Attachment";
-        } catch {
-          next[message.id] = "Encrypted message";
-        }
-      }
-      if (!cancel) setTexts((current) => (sameTextMap(current, next) ? current : next));
-    })();
-    return () => { cancel = true; };
-  }, [chat, identity, me, messages]);
-
-  useEffect(() => {
-    if (chat.type !== "direct" || !other?.publicKey) return;
-    void safetyCode(me.publicKey, other.publicKey).then(setCode);
-  }, [chat.type, me.publicKey, other?.publicKey]);
+  const starred = messages.filter((message) => message.starredBy?.includes(me.uid) && !message.deletedForAll);
+  const title = chatTitle(chat, me.uid, profiles);
+  const photo = chatPhoto(chat, me.uid, profiles);
+  const disappearingValue = chat.disappearingMs == null ? "off" : String(chat.disappearingMs);
+  const mine = chat.members[me.uid];
+  const muted = (mine?.mutedUntil || 0) > Date.now();
+  const isContact = true;
 
   async function addPerson() {
     setError("");
@@ -71,86 +51,222 @@ export function ChatInfo({
       const people = (await searchPeople(username)).filter((person) => person.uid !== me.uid);
       const person = people.find((item) => item.usernameLower === username.trim().toLowerCase().replace(/^@/, "")) || (people.length === 1 ? people[0] : null);
       if (!person) throw new Error(people.length ? "More than one person matches. Use the full username." : "No one matches that name.");
-      await addGroupMember(chat, me, identity, person.uid);
+      await addGroupMember(chat, me, person.uid);
       setUsername("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not add them.");
     }
   }
 
+  async function saveGroupTitle() {
+    const next = groupTitle.trim();
+    if (next !== chat.title) await updateGroup(chat.id, { title: next });
+  }
+
   return (
-    <aside className="absolute inset-0 z-10 overflow-auto border-l border-line bg-panel md:static md:w-[360px]">
-      <header className="flex h-16 items-center px-4">
-        <strong className="flex-1 font-serif text-xl font-light">Chat info</strong>
-        <button className="grid size-10 place-items-center rounded-full text-muted-foreground hover:bg-white/5" type="button" onClick={onClose}>✕</button>
+    <aside className="absolute inset-0 z-10 flex flex-col bg-ink md:static md:z-auto md:w-[360px] md:shrink-0 md:border-l md:border-line">
+      <header className="flex h-14 shrink-0 items-center gap-3 border-b border-line bg-panel/95 px-3 backdrop-blur-sm">
+        <button className="grid size-10 place-items-center rounded-full text-muted-foreground transition hover:bg-white/5 hover:text-fg" type="button" onClick={onClose} aria-label="Close info">
+          <X className="size-5" />
+        </button>
+        <h2 className="text-base font-medium">{chat.type === "group" ? "Group info" : "Contact info"}</h2>
       </header>
-      <div className="space-y-5 px-4 pb-8">
-        <div>
-          <h2 className="font-serif text-3xl font-light">{chatTitle(chat, me.uid, profiles)}</h2>
-          {chat.type === "direct" && other?.about ? <p className="mt-1 text-sm text-muted-foreground">{other.about}</p> : null}
-          {chat.type === "group" ? <p className="mt-1 text-sm text-muted-foreground">{chat.memberIds.length} people</p> : null}
-        </div>
-        {code ? (
-          <div className="rounded-3xl border border-line bg-raised p-4">
-            <strong className="text-sm tracking-wide text-gold">Safety code</strong>
-            <p className="mt-1 text-sm text-muted-foreground">Read this beside {other?.displayName}. The same numbers mean you both have the same keys.</p>
-            <div className="mt-3 grid grid-cols-3 gap-2">
-              {code.split(" ").map((group, index) => <span className="rounded-xl bg-panel py-2 text-center font-serif tracking-widest" key={`${group}-${index}`}>{group}</span>)}
-            </div>
+
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
+        <section className="rounded-2xl bg-panel/90 px-4 py-6 text-center ring-1 ring-line">
+          <div className="mx-auto w-fit rounded-full ring-4 ring-gold/25">
+            <Avatar name={title} photo={photo} large />
           </div>
-        ) : null}
-        <div className="space-y-1.5">
-          <Label>Disappearing messages</Label>
-          <Select value={String(chat.disappearingMs || "off")} onValueChange={(value) => void setDisappearing(chat.id, value === "off" ? null : Number(value))}>
-            <SelectTrigger><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {TIMERS.map(([label, value]) => <SelectItem key={label} value={value ? String(value) : "off"}>{label}</SelectItem>)}
-            </SelectContent>
-          </Select>
-        </div>
-        <div className="grid grid-cols-3 gap-2">
-          <Button variant={chat.members[me.uid]?.pinned ? "default" : "outline"} size="sm" type="button" onClick={() => setMemberFlag(chat.id, me.uid, { pinned: !chat.members[me.uid]?.pinned })}>{chat.members[me.uid]?.pinned ? "Pinned" : "Pin"}</Button>
-          <Button variant={chat.members[me.uid]?.archived ? "default" : "outline"} size="sm" type="button" onClick={() => setMemberFlag(chat.id, me.uid, { archived: !chat.members[me.uid]?.archived })}>{chat.members[me.uid]?.archived ? "Archived" : "Archive"}</Button>
-          <Button variant={(chat.members[me.uid]?.mutedUntil || 0) > Date.now() ? "default" : "outline"} size="sm" type="button" onClick={() => setMemberFlag(chat.id, me.uid, { mutedUntil: (chat.members[me.uid]?.mutedUntil || 0) > Date.now() ? 0 : Date.now() + 8 * 60 * 60 * 1000 })}>{(chat.members[me.uid]?.mutedUntil || 0) > Date.now() ? "Muted" : "Mute 8h"}</Button>
-        </div>
+          <h2 className="mt-4 text-xl font-semibold tracking-tight">{title}</h2>
+          {chat.type === "direct" && other ? (
+            <>
+              <p className="mt-1 text-sm text-gold">@{other.username}</p>
+              <p className="mt-2 text-xs text-muted-foreground capitalize">
+                {lastSeenLabel(other, visibleField(other, "lastSeen", isContact)) || "Last seen hidden"}
+              </p>
+              {other.about ? <p className="mt-3 text-sm leading-relaxed text-muted-foreground">{other.about}</p> : null}
+            </>
+          ) : (
+            <p className="mt-1 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
+              <Users className="size-4 text-gold" />
+              {chat.memberIds.length} members
+            </p>
+          )}
+        </section>
+
         {chat.type === "group" ? (
-          <div>
-            <h3 className="font-serif text-xl font-light">People</h3>
-            {chat.memberIds.map((uid) => (
-              <div className="flex items-center gap-2 py-1" key={uid}>
-                <span className="flex-1 text-sm">{profiles[uid]?.displayName || uid} · {chat.members[uid]?.role}</span>
-                {admin && uid !== me.uid ? <button className="text-sm text-gold" type="button" onClick={() => removeGroupMember(chat, me, identity, uid)}>Remove</button> : null}
-              </div>
-            ))}
-            {admin ? (
-              <div className="flex gap-2">
-                <input className="w-full rounded-2xl border border-line bg-raised px-4 py-2 text-sm outline-none" value={username} onChange={(event) => setUsername(event.target.value)} placeholder="Add by username" />
-                <button className="rounded-full bg-gold px-4 text-sm font-semibold text-gold-ink" type="button" onClick={addPerson}>Add</button>
-              </div>
-            ) : null}
-            {admin ? (
-              <label className="block text-sm text-muted-foreground">Group name
-                <input className="mt-1.5 w-full rounded-2xl border border-line bg-raised px-4 py-3 text-fg outline-none" defaultValue={chat.title} onBlur={(event) => void updateGroup(chat.id, { title: event.target.value })} />
-              </label>
-            ) : null}
-            {admin ? (
-              <label className="mt-3 block text-sm text-muted-foreground">Group photo
-                <span className="mt-1.5 flex cursor-pointer items-center justify-center rounded-2xl border border-dashed border-line px-4 py-3 text-sm text-fg">Choose a photo
-                  <input className="sr-only" type="file" accept="image/*" onChange={async (event) => {
+          <section className="rounded-2xl bg-panel/90 ring-1 ring-line">
+            <SectionHead icon={<Users className="size-4" />} title="Group" />
+            <div className="space-y-3 px-4 pb-4">
+              <Field label="Name">
+                <Input
+                  value={groupTitle}
+                  onChange={(event) => setGroupTitle(event.target.value)}
+                  onBlur={() => void saveGroupTitle()}
+                  className="h-10 border-line bg-raised"
+                />
+              </Field>
+              <label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-line bg-raised/50 py-3 text-sm text-muted-foreground transition hover:border-gold/40 hover:text-fg">
+                <ImagePlus className="size-4 text-gold" />
+                Change group photo
+                <input
+                  className="sr-only"
+                  type="file"
+                  accept="image/*"
+                  onChange={async (event) => {
                     const file = event.target.files?.[0];
                     if (!file) return;
                     const url = await uploadAvatar(me.uid, file);
                     await updateGroup(chat.id, { photoURL: url });
-                  }} />
-                </span>
+                  }}
+                />
               </label>
-            ) : null}
-          </div>
+              {admin ? (
+                <>
+                  <Field label="Add member">
+                    <div className="flex gap-2">
+                      <Input className="h-10 border-line bg-raised" value={username} placeholder="@username" onChange={(event) => setUsername(event.target.value)} />
+                      <Button className="shrink-0" type="button" size="icon" aria-label="Add member" onClick={() => void addPerson()}>
+                        <UserPlus className="size-4" />
+                      </Button>
+                    </div>
+                  </Field>
+                  {error ? <p className="text-xs text-destructive">{error}</p> : null}
+                </>
+              ) : null}
+            </div>
+            <div className="border-t border-line">
+              {chat.memberIds.map((uid) => {
+                const member = profiles[uid];
+                const role = chat.members[uid]?.role;
+                return (
+                  <div className="flex items-center gap-3 px-4 py-3" key={uid}>
+                    <Avatar name={member?.displayName || "?"} photo={member?.photoURL} small />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{member?.displayName || "Member"}</p>
+                      <p className="truncate text-xs text-muted-foreground">@{member?.username || "…"}</p>
+                    </div>
+                    {role === "admin" ? <span className="text-[10px] font-medium tracking-wide text-gold uppercase">Admin</span> : null}
+                    {admin && uid !== me.uid ? (
+                      <button className="text-xs text-destructive hover:underline" type="button" onClick={() => void removeGroupMember(chat, me, uid)}>
+                        Remove
+                      </button>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          </section>
         ) : null}
-        <h3 className="font-serif text-xl font-light">Starred</h3>
-        {starred.length === 0 ? <p className="text-sm text-muted-foreground">No starred messages.</p> : starred.map((message) => <p className="text-sm" key={message.id}>{texts[message.id] || message.fileName || "Attachment"}</p>)}
-        <p className="text-sm text-danger">{error}</p>
+
+        <section className="rounded-2xl bg-panel/90 ring-1 ring-line">
+          <SectionHead icon={<Timer className="size-4" />} title="Chat settings" />
+          <div className="divide-y divide-line px-4">
+            <ToggleRow
+              icon={<Pin className="size-4" />}
+              label="Pinned"
+              hint="Keep this chat at the top"
+              on={Boolean(mine?.pinned)}
+              onChange={(on) => void setMemberFlag(chat.id, me.uid, { pinned: on })}
+            />
+            <ToggleRow
+              icon={<Archive className="size-4" />}
+              label="Archived"
+              hint="Hide from the main list"
+              on={Boolean(mine?.archived)}
+              onChange={(on) => void setMemberFlag(chat.id, me.uid, { archived: on })}
+            />
+            <ToggleRow
+              icon={<Clock className="size-4" />}
+              label="Mute notifications"
+              hint="Silence alerts for this chat"
+              on={muted}
+              onChange={(on) => void setMemberFlag(chat.id, me.uid, { mutedUntil: on ? Date.now() + 365 * 24 * 60 * 60 * 1000 : 0 })}
+            />
+          </div>
+          <div className="border-t border-line px-4 py-3">
+            <p className="mb-2 text-xs text-muted-foreground">Disappearing messages</p>
+            <Select
+              value={disappearingValue}
+              onValueChange={(value) => {
+                const pick = TIMERS.find((item) => item.value === value);
+                void setDisappearing(chat.id, pick?.ms ?? null);
+              }}
+            >
+              <SelectTrigger className="h-10 w-full border-line bg-raised">
+                <SelectValue placeholder="Off" />
+              </SelectTrigger>
+              <SelectContent>
+                {TIMERS.map((item) => (
+                  <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </section>
+
+        {starred.length ? (
+          <section className="rounded-2xl bg-panel/90 ring-1 ring-line">
+            <SectionHead icon={<Star className="size-4" />} title={`Starred (${starred.length})`} />
+            <ul className="max-h-48 space-y-0 divide-y divide-line overflow-y-auto px-4 pb-2">
+              {starred.slice(0, 30).map((message) => (
+                <li className="py-2.5 text-sm text-muted-foreground" key={message.id}>
+                  <span className="line-clamp-2 text-fg">{messageText(message) || message.fileName || "Attachment"}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ) : null}
       </div>
     </aside>
+  );
+}
+
+function SectionHead({ icon, title }: { icon: ReactNode; title: string }) {
+  return (
+    <div className="flex items-center gap-2 border-b border-line px-4 py-3">
+      <span className="text-gold">{icon}</span>
+      <span className="text-sm font-medium text-gold">{title}</span>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <div className="mt-1.5">{children}</div>
+    </label>
+  );
+}
+
+function ToggleRow({
+  icon,
+  label,
+  hint,
+  on,
+  onChange,
+}: {
+  icon: ReactNode;
+  label: string;
+  hint: string;
+  on: boolean;
+  onChange: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-3 py-3.5 text-left"
+      onClick={() => onChange(!on)}
+    >
+      <span className="text-muted-foreground">{icon}</span>
+      <span className="min-w-0 flex-1">
+        <span className="block text-sm font-medium">{label}</span>
+        <span className="block text-xs text-muted-foreground">{hint}</span>
+      </span>
+      <span className={`relative h-6 w-11 shrink-0 rounded-full transition ${on ? "bg-gold" : "bg-raised"}`}>
+        <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition ${on ? "left-[22px]" : "left-0.5"}`} />
+      </span>
+    </button>
   );
 }

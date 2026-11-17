@@ -2,8 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { X } from "lucide-react";
-import type { Identity } from "@/lib/crypto";
-import { decryptStatus, markStatusViewed, postStatus, watchStatus } from "@/lib/status";
+import { markStatusViewed, postStatus, statusText, watchStatus } from "@/lib/status";
 import type { StatusItem, UserProfile } from "@/lib/types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,12 +11,10 @@ import { EmojiPicker } from "./EmojiPicker";
 
 export function StatusTray({
   me,
-  identity,
   contacts,
   onOpen,
 }: {
   me: UserProfile;
-  identity: Identity;
   contacts: UserProfile[];
   onOpen: (uid: string) => void;
 }) {
@@ -26,7 +23,7 @@ export function StatusTray({
   useEffect(() => watchStatus(me.uid, setMine), [me.uid]);
 
   async function add(text: string) {
-    await postStatus({ me, identity, contacts, text });
+    await postStatus({ me, text });
     setComposing(false);
   }
 
@@ -76,13 +73,11 @@ export function StatusComposer({ onText, onCancel }: { onText: (text: string) =>
 export function StatusViewer({
   uid,
   me,
-  identity,
   name,
   onClose,
 }: {
   uid: string;
   me: UserProfile;
-  identity: Identity;
   name: string;
   onClose: () => void;
 }) {
@@ -93,15 +88,13 @@ export function StatusViewer({
   const item = items[index];
 
   useEffect(() => {
-    if (!item) return;
-    let url = "";
-    decryptStatus(item, me, identity).then((result) => {
-      url = result.url;
-      setView(result);
-      if (!item.viewers?.[me.uid]) void markStatusViewed(uid, item.id, me.uid);
-    }).catch(() => setView({ text: "This status can't be opened on this browser.", url: "" }));
-    return () => { if (url) URL.revokeObjectURL(url); };
-  }, [identity, item, me, uid]);
+    if (!item) {
+      setView(null);
+      return;
+    }
+    setView({ text: statusText(item), url: "" });
+    if (!item.viewers?.[me.uid]) void markStatusViewed(uid, item.id, me.uid);
+  }, [item, me.uid, uid]);
 
   return (
     <div className="fixed inset-0 z-30 flex flex-col bg-black text-white">
